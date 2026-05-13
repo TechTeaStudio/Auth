@@ -1,0 +1,64 @@
+using System.ComponentModel.DataAnnotations;
+using FluentAssertions;
+using Xunit;
+
+namespace TechTeaStudio.Auth.Tests;
+
+public class AuthOptionsTests
+{
+    [Fact]
+    public void Defaults_match_hyperion_production_values()
+    {
+        var o = new AuthOptions();
+        o.TokenLifetime.Should().Be(TimeSpan.FromMinutes(30));
+        o.RefreshTokenLifetime.Should().Be(TimeSpan.FromDays(7));
+        o.ClockSkew.Should().Be(TimeSpan.FromMinutes(5));
+        o.MaxFailedLoginAttempts.Should().Be(5);
+        o.LockoutDuration.Should().Be(TimeSpan.FromMinutes(15));
+    }
+
+    [Fact]
+    public void Empty_SecretKey_fails_validation()
+    {
+        var o = new AuthOptions { SecretKey = "", Issuer = "i", Audience = "a" };
+        Validate(o).Should().Contain(r => r.MemberNames.Contains(nameof(AuthOptions.SecretKey)));
+    }
+
+    [Fact]
+    public void Short_SecretKey_fails_validation()
+    {
+        var o = new AuthOptions { SecretKey = new string('x', 31), Issuer = "i", Audience = "a" };
+        Validate(o).Should().Contain(r => r.MemberNames.Contains(nameof(AuthOptions.SecretKey)));
+    }
+
+    [Fact]
+    public void Exactly_32_chars_passes()
+    {
+        var o = new AuthOptions { SecretKey = new string('x', 32), Issuer = "i", Audience = "a" };
+        Validate(o).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Missing_Issuer_or_Audience_fails()
+    {
+        var o = new AuthOptions { SecretKey = new string('x', 32), Issuer = "", Audience = "" };
+        var results = Validate(o);
+        results.Should().Contain(r => r.MemberNames.Contains(nameof(AuthOptions.Issuer)));
+        results.Should().Contain(r => r.MemberNames.Contains(nameof(AuthOptions.Audience)));
+    }
+
+    [Fact]
+    public void Zero_max_failed_attempts_fails()
+    {
+        var o = new AuthOptions { SecretKey = new string('x', 32), Issuer = "i", Audience = "a", MaxFailedLoginAttempts = 0 };
+        Validate(o).Should().Contain(r => r.MemberNames.Contains(nameof(AuthOptions.MaxFailedLoginAttempts)));
+    }
+
+    private static IReadOnlyList<ValidationResult> Validate(AuthOptions o)
+    {
+        var ctx = new ValidationContext(o);
+        var results = new List<ValidationResult>();
+        Validator.TryValidateObject(o, ctx, results, validateAllProperties: true);
+        return results;
+    }
+}
