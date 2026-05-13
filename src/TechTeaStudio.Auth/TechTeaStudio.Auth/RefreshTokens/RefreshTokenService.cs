@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.Extensions.Options;
 using TechTeaStudio.Auth.Abstractions;
+using TechTeaStudio.Auth.Observability;
 
 namespace TechTeaStudio.Auth.RefreshTokens;
 
@@ -16,12 +17,14 @@ public sealed class RefreshTokenService
     private readonly ITokenProvider _tokens;
     private readonly IRefreshTokenStore _store;
     private readonly AuthOptions _options;
+    private readonly IAuthAuditLogger _audit;
 
-    public RefreshTokenService(ITokenProvider tokens, IRefreshTokenStore store, IOptions<AuthOptions> options)
+    public RefreshTokenService(ITokenProvider tokens, IRefreshTokenStore store, IOptions<AuthOptions> options, IAuthAuditLogger? audit = null)
     {
         _tokens = tokens ?? throw new ArgumentNullException(nameof(tokens));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _audit = audit ?? NullAuthAuditLogger.Instance;
     }
 
     /// <summary>
@@ -46,6 +49,10 @@ public sealed class RefreshTokenService
         await _store.CreateAsync(entity, cancellationToken).ConfigureAwait(false);
 
         var access = _tokens.CreateToken(userId, claims, _options.TokenLifetime);
+
+        AuthDiagnostics.TokensIssuedTotal.Add(1);
+        await _audit.LogAsync(new TokenIssuedEvent(userId, hash, expiresAt, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
+
         return new TokenPair(access, raw, expiresAt);
     }
 
@@ -67,8 +74,12 @@ public sealed class RefreshTokenService
         if (!existing.IsActive)
         {
             // Replay attack candidate: presenter showed a token that was already revoked or expired.
+            var chainLength = 0;
             if (_options.RevokeChainOnRefreshReuse)
-                await RevokeChainAsync(existing, cancellationToken).ConfigureAwait(false);
+                chainLength = await RevokeChainAsync(existing, cancellationToken).ConfigureAwait(false);
+
+            AuthDiagnostics.RefreshReuseDetectedTotal.Add(1);
+            await _audit.LogAsync(new RefreshReuseDetectedEvent(existing.UserId, existing.TokenHash, chainLength, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
             return null;
         }
 
@@ -87,6 +98,11 @@ public sealed class RefreshTokenService
         await _store.RevokeAsync(existing.Id, newHash, cancellationToken).ConfigureAwait(false);
 
         var access = _tokens.CreateToken(existing.UserId, claims, _options.TokenLifetime);
+
+        AuthDiagnostics.RefreshTokensRotatedTotal.Add(1);
+        AuthDiagnostics.TokensIssuedTotal.Add(1);
+        await _audit.LogAsync(new TokenRefreshedEvent(existing.UserId, existing.TokenHash, newHash, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
+
         return new TokenPair(access, raw, expiresAt);
     }
 
@@ -102,15 +118,17 @@ public sealed class RefreshTokenService
         await _store.RevokeAsync(existing.Id, null, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task RevokeChainAsync(RefreshToken start, CancellationToken cancellationToken)
+    private async Task<int> RevokeChainAsync(RefreshToken start, CancellationToken cancellationToken)
     {
         var current = start;
         var safety = 0;
-        while (current is not null && safety++ < 1000)
+        while (current is not null && safety < 1000)
         {
             await _store.RevokeAsync(current.Id, current.ReplacedByTokenHash, cancellationToken).ConfigureAwait(false);
+            safety++;
             if (string.IsNullOrEmpty(current.ReplacedByTokenHash)) break;
             current = await _store.GetByTokenHashAsync(current.ReplacedByTokenHash!, cancellationToken).ConfigureAwait(false);
         }
+        return safety;
     }
 }

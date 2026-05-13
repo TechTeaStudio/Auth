@@ -3,6 +3,32 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-05-13
+
+Security hardening, observability, single-use signed tokens, TOTP, recovery codes, and an API-key authentication scheme.
+
+### Added
+- **`SecurityHeadersMiddleware`** + `app.UseSecurityHeaders()` extension. Sets `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, and `Strict-Transport-Security` (on HTTPS only). (TSA-28)
+- **`ILoginAttemptTracker`** + `InMemoryLoginAttemptTracker` with configurable threshold (`AuthOptions.MaxFailedLoginAttempts`) and duration (`AuthOptions.LockoutDuration`). Registered as a singleton by `AddTechTeaStudioAuth()`. (TSA-29, TSA-30)
+- **Revoked-token deny-list** — `IRevokedTokenStore`, `InMemoryRevokedTokenStore`, `NullRevokedTokenStore`, `RevokedTokenCleanupService`. The bearer pipeline consults the store on `OnTokenValidated`; revoked tokens fail authentication immediately. (TSA-53)
+- **Audit + observability** — `IAuthAuditLogger` + `NullAuthAuditLogger` (default) + `InMemoryAuthAuditLogger` (bounded ring buffer). Strongly-typed events: `LoginSucceeded`, `LoginFailed`, `TokenIssued`, `TokenRefreshed`, `TokenRevoked`, `RefreshReuseDetected`, `AccountLocked`. (TSA-64)
+- **`AuthDiagnostics`** static class — `ActivitySource` and `Meter` named `TechTeaStudio.Auth`, plus six Prometheus-friendly counters (`tts_auth_login_*_total`, `tts_auth_tokens_*_total`, `tts_auth_refresh_*_total`, `tts_auth_accounts_locked_total`). Picked up automatically by any OpenTelemetry listener. `RefreshTokenService` is wired up to emit events and increment counters. (TSA-65, TSA-66)
+- **Single-use signed tokens** — `SignedTokenService` (HMAC-SHA256, base64url, purpose + jti + exp) + `EmailConfirmationTokenService` (24h default) + `PasswordResetTokenService` (30min default). Replay is prevented via the deny-list — successful validation revokes the `jti`. (TSA-58, TSA-59)
+- **API-key authentication scheme** — `IApiKeyStore` (and `FuncApiKeyStore` for tests), `ApiKeyAuthenticationOptions`, `ApiKeyAuthenticationHandler`. Reads `X-Api-Key` by default and optionally `Authorization: ApiKey <key>`. Registered via `.AddTechTeaStudioApiKey()` on `AuthenticationBuilder`. (TSA-60)
+- **TOTP (RFC 6238)** — `TotpGenerator` + `TotpValidator`, pure functions, no I/O. Default 30-second period, 6-digit code, HMAC-SHA1. Validator runs in constant time and tolerates ±1 step of clock skew by default. (TSA-61)
+- **Recovery codes** — `RecoveryCodeService.Generate/Hash/Verify`. Friendly alphabet (no `0/O/1/I/L`), SHA-256 hash at rest, constant-time verification. (TSA-62)
+- **2FA enrollment contracts** — `I2FaEnrollmentService` interface (consumers bridge to their own user store), `TwoFactorEnrollmentStart` record, and `OtpAuthUri` helper that produces `otpauth://` provisioning URIs and base32 encoding. (TSA-63)
+
+### Changed
+- `RefreshTokenService` accepts an optional `IAuthAuditLogger` and now emits `TokenIssued`, `TokenRefreshed`, and `RefreshReuseDetected` events alongside the matching `AuthDiagnostics` counter increments.
+- `AddTechTeaStudioAuth()` now registers `ILoginAttemptTracker`, `IRevokedTokenStore`, `IAuthAuditLogger` (null sink), `SecurityHeadersMiddleware`, and the `RevokedTokenCleanupService` background service.
+
+### Deferred to a later release
+- Authorization policy helpers, OpenAPI Bearer security scheme, ASP.NET Core rate-limiter integration, cookie scheme. (TSA-67 … TSA-70)
+- Signing-key rotation with `kid`, multi-key validation window, RS256/ES256 asymmetric signing. (TSA-55 … TSA-57)
+- EF Core / Redis refresh-token stores. (TSA-49, TSA-50)
+- BenchmarkDotNet project. (TSA-79)
+
 ## [0.1.0] — 2026-05-13
 
 Initial release. Public API may still adjust in 0.1.x before being locked at 1.0.

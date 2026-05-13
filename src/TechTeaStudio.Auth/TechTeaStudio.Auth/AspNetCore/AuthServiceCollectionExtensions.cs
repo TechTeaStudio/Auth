@@ -7,8 +7,11 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using TechTeaStudio.Auth.Abstractions;
 using TechTeaStudio.Auth.Jwt;
+using TechTeaStudio.Auth.Lockout;
+using TechTeaStudio.Auth.Observability;
 using TechTeaStudio.Auth.Passwords;
 using TechTeaStudio.Auth.RefreshTokens;
+using TechTeaStudio.Auth.Revocation;
 
 namespace TechTeaStudio.Auth.AspNetCore;
 
@@ -83,7 +86,12 @@ public static class AuthServiceCollectionExtensions
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddSingleton<IRefreshTokenStore, InMemoryRefreshTokenStore>();
         services.AddSingleton<RefreshTokenService>();
+        services.AddSingleton<ILoginAttemptTracker, InMemoryLoginAttemptTracker>();
+        services.AddSingleton<IRevokedTokenStore, InMemoryRevokedTokenStore>();
+        services.AddSingleton<IAuthAuditLogger>(NullAuthAuditLogger.Instance);
+        services.AddTransient<SecurityHeadersMiddleware>();
         services.AddHostedService<RefreshTokenCleanupService>();
+        services.AddHostedService<RevokedTokenCleanupService>();
     }
 
     private static void AddTechTeaStudioJwtBearer(this IServiceCollection services)
@@ -142,6 +150,20 @@ internal sealed class ConfigureTechTeaStudioJwtBearer : IConfigureNamedOptions<J
             if (inner is not null) await inner(ctx).ConfigureAwait(false);
             if (ctx.Handled) return;
             await JwtChallengeWriter.WriteAsync(ctx).ConfigureAwait(false);
+        };
+
+        var innerValidated = options.Events.OnTokenValidated;
+        options.Events.OnTokenValidated = async ctx =>
+        {
+            if (innerValidated is not null) await innerValidated(ctx).ConfigureAwait(false);
+            var store = ctx.HttpContext.RequestServices.GetService(typeof(IRevokedTokenStore)) as IRevokedTokenStore;
+            if (store is null or NullRevokedTokenStore) return;
+
+            var jti = ctx.Principal?.FindFirst(AuthClaims.JwtId)?.Value;
+            if (string.IsNullOrEmpty(jti)) return;
+
+            if (await store.IsRevokedAsync(jti, ctx.HttpContext.RequestAborted).ConfigureAwait(false))
+                ctx.Fail("Token has been revoked.");
         };
     }
 }
