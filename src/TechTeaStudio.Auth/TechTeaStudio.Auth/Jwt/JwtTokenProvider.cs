@@ -1,51 +1,37 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using TechTeaStudio.Auth.Abstractions;
+using TechTeaStudio.Auth.Signing;
 
 namespace TechTeaStudio.Auth.Jwt;
 
 /// <summary>
-/// HS256 implementation of <see cref="ITokenProvider"/>. Reads its signing key,
-/// issuer, audience, and clock skew from <see cref="AuthOptions"/> at construction.
+/// JWT implementation of <see cref="ITokenProvider"/>. Reads its signing key(s),
+/// issuer, audience, and clock skew from <see cref="AuthOptions"/> at construction;
+/// re-reads them on every call via <see cref="IOptionsMonitor{TOptions}"/> so a
+/// key rotation does not require restart.
 /// </summary>
 public sealed class JwtTokenProvider : ITokenProvider
 {
-    private readonly AuthOptions _options;
-    private readonly SigningCredentials _credentials;
-    private readonly TokenValidationParameters _validationParameters;
-    private readonly JwtSecurityTokenHandler _handler;
+    private readonly IOptionsMonitor<AuthOptions> _monitor;
+    private readonly JwtSecurityTokenHandler _handler = new() { MapInboundClaims = false };
 
-    public JwtTokenProvider(IOptions<AuthOptions> options)
+    public JwtTokenProvider(IOptionsMonitor<AuthOptions> monitor)
     {
-        if (options is null) throw new ArgumentNullException(nameof(options));
-        _options = options.Value ?? throw new ArgumentNullException(nameof(options));
-
-        var keyBytes = Encoding.UTF8.GetBytes(_options.SecretKey);
-        if (keyBytes.Length < 32)
-            throw new InvalidOperationException("AuthOptions.SecretKey must be at least 32 bytes (256 bits) for HS256.");
-
-        var key = new SymmetricSecurityKey(keyBytes);
-        _credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-        _validationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = _options.Issuer,
-            ValidateAudience = true,
-            ValidAudience = _options.Audience,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = key,
-            ClockSkew = _options.ClockSkew,
-            NameClaimType = AuthClaims.Username,
-            RoleClaimType = AuthClaims.Role,
-        };
-
-        _handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        _monitor = monitor ?? throw new ArgumentNullException(nameof(monitor));
+        // Resolve once at construction to fail fast on a bad signing key (< 32 bytes, bad PEM, ...).
+        _ = SigningKeyResolver.BuildSigningCredentials(SigningKeyResolver.ResolveActive(_monitor.CurrentValue));
     }
+
+    /// <summary>
+    /// Test / non-DI factory. Wraps a plain <see cref="IOptions{TOptions}"/> in a
+    /// snapshot <see cref="IOptionsMonitor{TOptions}"/>. Not used by DI — DI always
+    /// supplies the real monitor.
+    /// </summary>
+    public static JwtTokenProvider ForOptions(IOptions<AuthOptions> options) =>
+        new(new StaticOptionsMonitor(options ?? throw new ArgumentNullException(nameof(options))));
 
     /// <inheritdoc />
     public string CreateToken(string userId, IEnumerable<Claim> claims, TimeSpan lifetime)
@@ -53,6 +39,10 @@ public sealed class JwtTokenProvider : ITokenProvider
         if (string.IsNullOrEmpty(userId)) throw new ArgumentException("userId is required.", nameof(userId));
         if (claims is null) throw new ArgumentNullException(nameof(claims));
         if (lifetime <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(lifetime), "lifetime must be positive.");
+
+        var options = _monitor.CurrentValue;
+        var active = SigningKeyResolver.ResolveActive(options);
+        var creds = SigningKeyResolver.BuildSigningCredentials(active);
 
         var now = DateTime.UtcNow;
         var jti = Guid.NewGuid().ToString("N");
@@ -76,9 +66,9 @@ public sealed class JwtTokenProvider : ITokenProvider
             NotBefore = now,
             IssuedAt = now,
             Expires = now.Add(lifetime),
-            Issuer = _options.Issuer,
-            Audience = _options.Audience,
-            SigningCredentials = _credentials,
+            Issuer = options.Issuer,
+            Audience = options.Audience,
+            SigningCredentials = creds,
         };
 
         var token = _handler.CreateToken(descriptor);
@@ -91,11 +81,42 @@ public sealed class JwtTokenProvider : ITokenProvider
         if (string.IsNullOrEmpty(token)) return null;
         try
         {
-            return _handler.ValidateToken(token, _validationParameters, out _);
+            return _handler.ValidateToken(token, BuildValidationParameters(_monitor.CurrentValue), out _);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>Builds the <see cref="TokenValidationParameters"/> for the current options snapshot.</summary>
+    public static TokenValidationParameters BuildValidationParameters(AuthOptions options)
+    {
+        var keys = SigningKeyResolver.ResolveValidating(options)
+            .Select(SigningKeyResolver.BuildValidationKey)
+            .ToList();
+
+        return new TokenValidationParameters
+        {
+            ValidateIssuer = !string.IsNullOrEmpty(options.Issuer),
+            ValidIssuer = options.Issuer,
+            ValidateAudience = !string.IsNullOrEmpty(options.Audience),
+            ValidAudience = options.Audience,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKeys = keys,
+            ClockSkew = options.ClockSkew,
+            NameClaimType = AuthClaims.Username,
+            RoleClaimType = AuthClaims.Role,
+        };
+    }
+
+    private sealed class StaticOptionsMonitor : IOptionsMonitor<AuthOptions>
+    {
+        private readonly IOptions<AuthOptions> _options;
+        public StaticOptionsMonitor(IOptions<AuthOptions> options) => _options = options;
+        public AuthOptions CurrentValue => _options.Value;
+        public AuthOptions Get(string? name) => _options.Value;
+        public IDisposable? OnChange(Action<AuthOptions, string?> listener) => null;
     }
 }

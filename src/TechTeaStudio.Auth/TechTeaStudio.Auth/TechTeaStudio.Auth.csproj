@@ -11,10 +11,10 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth</PackageId>
-    <Version>0.3.1</Version>
+    <Version>0.4.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
-    <Description>Drop-in authentication primitives for .NET. JWT (HS256), PBKDF2-SHA256 password hashing, refresh tokens, multi-app claim profiles, and one-line ASP.NET Core wire-up.</Description>
+    <Description>Drop-in authentication primitives for ASP.NET Core. JWT (HS256/RS256/ES256) with signing-key rotation, PBKDF2-SHA256 password hashing, refresh tokens, audit, lockout, TOTP, recovery codes, cookie + bearer + API-key schemes.</Description>
     <RepositoryUrl>https://github.com/TechTeaStudio/Auth</RepositoryUrl>
     <PackageProjectUrl>https://github.com/TechTeaStudio/Auth</PackageProjectUrl>
     <PackageIcon>icon.png</PackageIcon>
@@ -22,22 +22,23 @@
     <Copyright>Copyright © Tech Tea Studio 2026</Copyright>
 
     <PackageReleaseNotes>
-v0.3.1 — CI/CD publish trigger moved from `main` to `product` to match the TechTeaStudio release-branch convention.
-
-v0.3.0 — Documentation, CI/CD pipeline, and the Hyperion-legacy nameid claim adapter.
+v0.4.0 — Signing-key rotation with kid, multi-key validation window, optional RS256/ES256 asymmetric signing + JWKS endpoint, authorization policy helpers, cookie auth scheme, and rate-limit integration (net8+).
 
 Added:
-  * GitHub Actions CI/publish workflow (.github/workflows/dotnet.yml) targeting the shared TechTeaStudio reusable workflow.
-  * Hyperion-legacy fallback in JwtTokenReader: when the token has no sub claim, UserId is read from the legacy nameid claim.
-  * docs/RECIPES.md — 10 ready-to-paste patterns: login, refresh, revoke, reset, email confirmation, 2FA enrollment, API keys, audit, metrics, multi-app claim profiles.
-  * docs/MIGRATION-Hyperion.md and docs/MIGRATION-Pello.md — step-by-step migration guides.
-  * SECURITY.md — threat model + reporting policy.
-  * Re-aligned README with the actually shipped public API.
+  * AuthOptions.Signing (Keys, ActiveKid, KeyRetention) — rotate keys without restart via IOptionsMonitor.
+  * SigningAlgorithm enum (HS256 default, RS256, ES256). PEM-loaded RSA / ECDSA keys.
+  * JWKS endpoint helper: app.MapTechTeaStudioJwks() serves /.well-known/jwks.json with public keys only.
+  * AuthPolicies + AddTechTeaStudioPolicies(): 4 built-in named policies via AuthorizationHandlers.
+  * AddTechTeaStudioCookieAuth() — HttpOnly + SameSite=Strict + Secure cookie scheme alongside Bearer.
+  * RefreshCookieHelper for HttpOnly refresh-token cookies.
+  * AddTechTeaStudioRateLimit() (net8+) — fixed-window per-IP rate limiter for login endpoints.
+
+Backward compatible: when Signing.Keys is empty, the legacy SecretKey path keeps working (HS256, kid="default").
 
 Full changelog: https://github.com/TechTeaStudio/Auth/blob/main/CHANGELOG.md
     </PackageReleaseNotes>
 
-    <PackageTags>auth;authentication;jwt;bearer;password;pbkdf2;refresh-token;aspnetcore;security;TechTeaStudio</PackageTags>
+    <PackageTags>auth;authentication;jwt;bearer;cookie;apikey;password;pbkdf2;refresh-token;jwks;rs256;es256;aspnetcore;security;TechTeaStudio</PackageTags>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -45,31 +46,27 @@ Full changelog: https://github.com/TechTeaStudio/Auth/blob/main/CHANGELOG.md
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'net6.0'">
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="6.0.36" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="6.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="6.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.7.1" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.2.0" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.2.0" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.2.0" />
   </ItemGroup>
 

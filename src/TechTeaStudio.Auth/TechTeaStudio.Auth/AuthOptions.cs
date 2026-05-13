@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TechTeaStudio.Auth.Signing;
 
 namespace TechTeaStudio.Auth;
 
@@ -9,12 +10,11 @@ namespace TechTeaStudio.Auth;
 public sealed class AuthOptions
 {
     /// <summary>
-    /// Symmetric signing key (HS256). Must be at least 32 ASCII characters (256 bits).
-    /// A short or empty key would let an attacker forge tokens, so the library refuses
-    /// to start without one — there is no anonymous fallback.
+    /// Symmetric signing key (HS256). Must be at least 32 ASCII characters (256 bits)
+    /// **when used** — required only when <see cref="SigningOptions.Keys"/> is empty
+    /// (i.e. the 0.1.x – 0.3.x legacy single-key path). Once <c>Signing.Keys</c> is
+    /// populated, this field can stay empty.
     /// </summary>
-    [Required(AllowEmptyStrings = false, ErrorMessage = "Auth:SecretKey is required.")]
-    [MinLength(32, ErrorMessage = "Auth:SecretKey must be at least 32 characters (256 bits) for HS256.")]
     public string SecretKey { get; set; } = string.Empty;
 
     /// <summary>JWT <c>iss</c> claim. Validated by the bearer handler on every request.</summary>
@@ -69,4 +69,12 @@ public sealed class AuthOptions
     /// expired refresh-token rows. Default: 1 hour.
     /// </summary>
     public TimeSpan RefreshTokenCleanupInterval { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// Signing-key configuration. When <c>Signing.Keys</c> is empty, the library
+    /// uses <see cref="SecretKey"/> as a single HS256 entry — backwards compatible
+    /// with 0.1.x – 0.3.x. Populate <c>Signing.Keys</c> + <c>Signing.ActiveKid</c>
+    /// to enable rotation with <c>kid</c> headers and (optionally) RS256 / ES256.
+    /// </summary>
+    public SigningOptions Signing { get; set; } = new();
 }

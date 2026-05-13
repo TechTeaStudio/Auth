@@ -84,7 +84,7 @@ public class JwtTokenProviderTests
     {
         var opts = TestAuthOptions.Create();
         opts.ClockSkew = TimeSpan.Zero;
-        var provider = new JwtTokenProvider(Options.Create(opts));
+        var provider = new JwtTokenProvider(opts.ToMonitor());
 
         // Issue a token that is already expired.
         var token = provider.CreateToken("u", Array.Empty<Claim>(), TimeSpan.FromMilliseconds(1));
@@ -96,8 +96,8 @@ public class JwtTokenProviderTests
     [Fact]
     public void Constructor_rejects_short_secret_key()
     {
-        var opts = Options.Create(new AuthOptions { SecretKey = "short", Issuer = "i", Audience = "a" });
-        var act = () => new JwtTokenProvider(opts);
+        var monitor = new AuthOptions { SecretKey = "short", Issuer = "i", Audience = "a" }.ToMonitor();
+        var act = () => new JwtTokenProvider(monitor);
         act.Should().Throw<InvalidOperationException>();
     }
 

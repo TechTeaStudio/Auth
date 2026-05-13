@@ -1,4 +1,3 @@
-using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -6,12 +5,14 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using TechTeaStudio.Auth.Abstractions;
+using TechTeaStudio.Auth.AspNetCore.Authorization;
 using TechTeaStudio.Auth.Jwt;
 using TechTeaStudio.Auth.Lockout;
 using TechTeaStudio.Auth.Observability;
 using TechTeaStudio.Auth.Passwords;
 using TechTeaStudio.Auth.RefreshTokens;
 using TechTeaStudio.Auth.Revocation;
+using TechTeaStudio.Auth.Signing;
 
 namespace TechTeaStudio.Auth.AspNetCore;
 
@@ -48,7 +49,8 @@ public static class AuthServiceCollectionExtensions
 
         services.TryAddCoreServices();
         services.AddTechTeaStudioJwtBearer();
-        services.AddAuthorization();
+        services.AddAuthorization(o => o.AddTechTeaStudioPolicies());
+        services.AddTechTeaStudioAuthorizationHandlers();
 
         return services;
     }
@@ -103,15 +105,16 @@ public static class AuthServiceCollectionExtensions
 }
 
 /// <summary>
-/// Hooks the JwtBearer default scheme up to <see cref="AuthOptions"/> after the
-/// options have been bound from configuration.
+/// Hooks the JwtBearer default scheme up to <see cref="AuthOptions"/>. Uses
+/// <see cref="IOptionsMonitor{TOptions}"/> + an <c>IssuerSigningKeyResolver</c>
+/// so that a signing-key rotation is picked up without restarting the host.
 /// </summary>
 internal sealed class ConfigureTechTeaStudioJwtBearer : IConfigureNamedOptions<JwtBearerOptions>
 {
-    private readonly IOptions<AuthOptions> _auth;
+    private readonly IOptionsMonitor<AuthOptions> _auth;
     private readonly IHostEnvironment? _env;
 
-    public ConfigureTechTeaStudioJwtBearer(IOptions<AuthOptions> auth, IHostEnvironment? env = null)
+    public ConfigureTechTeaStudioJwtBearer(IOptionsMonitor<AuthOptions> auth, IHostEnvironment? env = null)
     {
         _auth = auth ?? throw new ArgumentNullException(nameof(auth));
         _env = env;
@@ -124,24 +127,17 @@ internal sealed class ConfigureTechTeaStudioJwtBearer : IConfigureNamedOptions<J
     {
         if (name != JwtBearerDefaults.AuthenticationScheme) return;
 
-        var auth = _auth.Value;
+        var snapshot = _auth.CurrentValue;
         options.RequireHttpsMetadata = _env?.IsDevelopment() != true;
         options.SaveToken = true;
         options.MapInboundClaims = false;
 
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(auth.SecretKey)),
-            ValidateIssuer = !string.IsNullOrEmpty(auth.Issuer),
-            ValidIssuer = auth.Issuer,
-            ValidateAudience = !string.IsNullOrEmpty(auth.Audience),
-            ValidAudience = auth.Audience,
-            ValidateLifetime = true,
-            ClockSkew = auth.ClockSkew,
-            NameClaimType = AuthClaims.Username,
-            RoleClaimType = AuthClaims.Role,
-        };
+        options.TokenValidationParameters = JwtTokenProvider.BuildValidationParameters(snapshot);
+        // Refresh the key list on every request so IOptionsMonitor updates propagate.
+        var monitor = _auth;
+        options.TokenValidationParameters.IssuerSigningKeyResolver = (_, _, _, _) =>
+            SigningKeyResolver.ResolveValidating(monitor.CurrentValue)
+                .Select(SigningKeyResolver.BuildValidationKey);
 
         options.Events ??= new JwtBearerEvents();
         var inner = options.Events.OnChallenge;

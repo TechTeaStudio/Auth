@@ -12,7 +12,7 @@ public class SignedTokenServiceTests
     public async Task Generate_then_validate_round_trips()
     {
         var store = new InMemoryRevokedTokenStore();
-        var svc = new SignedTokenService(TestAuthOptions.Wrap(), store);
+        var svc = new SignedTokenService(TestAuthOptions.WrapOptions(), store);
 
         var token = svc.Generate("test", TimeSpan.FromMinutes(5), new Dictionary<string, string> { ["x"] = "y" });
         var payload = await svc.ValidateAsync(token, "test");
@@ -25,7 +25,7 @@ public class SignedTokenServiceTests
     public async Task Cannot_replay_after_use()
     {
         var store = new InMemoryRevokedTokenStore();
-        var svc = new SignedTokenService(TestAuthOptions.Wrap(), store);
+        var svc = new SignedTokenService(TestAuthOptions.WrapOptions(), store);
         var token = svc.Generate("p", TimeSpan.FromMinutes(5));
 
         (await svc.ValidateAsync(token, "p")).Should().NotBeNull();
@@ -36,7 +36,7 @@ public class SignedTokenServiceTests
     public async Task Wrong_purpose_fails()
     {
         var store = new InMemoryRevokedTokenStore();
-        var svc = new SignedTokenService(TestAuthOptions.Wrap(), store);
+        var svc = new SignedTokenService(TestAuthOptions.WrapOptions(), store);
         var token = svc.Generate("password_reset", TimeSpan.FromMinutes(5));
         (await svc.ValidateAsync(token, "email_confirmation")).Should().BeNull();
     }
@@ -45,7 +45,7 @@ public class SignedTokenServiceTests
     public async Task Expired_token_fails()
     {
         var store = new InMemoryRevokedTokenStore();
-        var svc = new SignedTokenService(TestAuthOptions.Wrap(), store);
+        var svc = new SignedTokenService(TestAuthOptions.WrapOptions(), store);
         var token = svc.Generate("p", TimeSpan.FromMilliseconds(20));
         await Task.Delay(50);
         (await svc.ValidateAsync(token, "p")).Should().BeNull();
@@ -55,7 +55,7 @@ public class SignedTokenServiceTests
     public async Task Tampered_signature_fails()
     {
         var store = new InMemoryRevokedTokenStore();
-        var svc = new SignedTokenService(TestAuthOptions.Wrap(), store);
+        var svc = new SignedTokenService(TestAuthOptions.WrapOptions(), store);
         var token = svc.Generate("p", TimeSpan.FromMinutes(5));
         var parts = token.Split('.');
         var tampered = parts[0] + "." + new string(parts[1].Reverse().ToArray());
@@ -68,7 +68,7 @@ public class EmailConfirmationTokenServiceTests
     [Fact]
     public async Task Round_trips_userId_and_email()
     {
-        var svc = new EmailConfirmationTokenService(TestAuthOptions.Wrap(), new InMemoryRevokedTokenStore());
+        var svc = new EmailConfirmationTokenService(TestAuthOptions.WrapOptions(), new InMemoryRevokedTokenStore());
         var token = svc.Generate("u-1", "u@x");
         var r = await svc.ValidateAsync(token);
         r.Success.Should().BeTrue();
@@ -82,7 +82,7 @@ public class PasswordResetTokenServiceTests
     [Fact]
     public async Task Round_trips_userId()
     {
-        var svc = new PasswordResetTokenService(TestAuthOptions.Wrap(), new InMemoryRevokedTokenStore());
+        var svc = new PasswordResetTokenService(TestAuthOptions.WrapOptions(), new InMemoryRevokedTokenStore());
         var token = svc.Generate("u-1");
         var r = await svc.ValidateAsync(token);
         r.Success.Should().BeTrue();
@@ -93,8 +93,8 @@ public class PasswordResetTokenServiceTests
     public async Task Reset_token_rejected_by_email_service()
     {
         var revoked = new InMemoryRevokedTokenStore();
-        var reset = new PasswordResetTokenService(TestAuthOptions.Wrap(), revoked);
-        var email = new EmailConfirmationTokenService(TestAuthOptions.Wrap(), revoked);
+        var reset = new PasswordResetTokenService(TestAuthOptions.WrapOptions(), revoked);
+        var email = new EmailConfirmationTokenService(TestAuthOptions.WrapOptions(), revoked);
 
         var t = reset.Generate("u");
         (await email.ValidateAsync(t)).Success.Should().BeFalse();

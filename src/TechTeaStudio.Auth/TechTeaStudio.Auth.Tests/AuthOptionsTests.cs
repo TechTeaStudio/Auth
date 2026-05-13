@@ -1,11 +1,14 @@
 using System.ComponentModel.DataAnnotations;
 using FluentAssertions;
+using TechTeaStudio.Auth.AspNetCore;
 using Xunit;
 
 namespace TechTeaStudio.Auth.Tests;
 
 public class AuthOptionsTests
 {
+    private readonly AuthOptionsValidator _validator = new();
+
     [Fact]
     public void Defaults_match_hyperion_production_values()
     {
@@ -15,20 +18,27 @@ public class AuthOptionsTests
         o.ClockSkew.Should().Be(TimeSpan.FromMinutes(5));
         o.MaxFailedLoginAttempts.Should().Be(5);
         o.LockoutDuration.Should().Be(TimeSpan.FromMinutes(15));
+        o.Signing.Should().NotBeNull();
+        o.Signing.Keys.Should().BeEmpty();
+        o.Signing.KeyRetention.Should().Be(TimeSpan.FromDays(7));
     }
 
     [Fact]
-    public void Empty_SecretKey_fails_validation()
+    public void Empty_SecretKey_with_no_Signing_Keys_fails_via_cross_property_validator()
     {
         var o = new AuthOptions { SecretKey = "", Issuer = "i", Audience = "a" };
-        Validate(o).Should().Contain(r => r.MemberNames.Contains(nameof(AuthOptions.SecretKey)));
+        var r = _validator.Validate(null, o);
+        r.Failed.Should().BeTrue();
+        r.FailureMessage.Should().Contain("SecretKey");
     }
 
     [Fact]
-    public void Short_SecretKey_fails_validation()
+    public void Short_SecretKey_fails_via_cross_property_validator()
     {
         var o = new AuthOptions { SecretKey = new string('x', 31), Issuer = "i", Audience = "a" };
-        Validate(o).Should().Contain(r => r.MemberNames.Contains(nameof(AuthOptions.SecretKey)));
+        var r = _validator.Validate(null, o);
+        r.Failed.Should().BeTrue();
+        r.FailureMessage.Should().Contain("32 bytes");
     }
 
     [Fact]
@@ -36,6 +46,7 @@ public class AuthOptionsTests
     {
         var o = new AuthOptions { SecretKey = new string('x', 32), Issuer = "i", Audience = "a" };
         Validate(o).Should().BeEmpty();
+        _validator.Validate(null, o).Succeeded.Should().BeTrue();
     }
 
     [Fact]

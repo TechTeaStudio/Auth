@@ -14,6 +14,21 @@ internal static class TestAuthOptions
             Audience = audience,
         };
 
-    public static IOptions<AuthOptions> Wrap(AuthOptions? opts = null) =>
+    public static IOptionsMonitor<AuthOptions> Wrap(AuthOptions? opts = null) =>
+        new SnapshotMonitor(opts ?? Create());
+
+    public static IOptions<AuthOptions> WrapOptions(AuthOptions? opts = null) =>
         Options.Create(opts ?? Create());
+
+    public static IOptionsMonitor<AuthOptions> ToMonitor(this AuthOptions opts) =>
+        new SnapshotMonitor(opts);
+
+    private sealed class SnapshotMonitor : IOptionsMonitor<AuthOptions>
+    {
+        private readonly AuthOptions _value;
+        public SnapshotMonitor(AuthOptions value) => _value = value;
+        public AuthOptions CurrentValue => _value;
+        public AuthOptions Get(string? name) => _value;
+        public IDisposable? OnChange(Action<AuthOptions, string?> listener) => null;
+    }
 }

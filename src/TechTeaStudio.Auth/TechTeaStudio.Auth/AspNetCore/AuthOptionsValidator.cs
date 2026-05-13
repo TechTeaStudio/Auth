@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text;
 using Microsoft.Extensions.Options;
+using TechTeaStudio.Auth.Signing;
 
 namespace TechTeaStudio.Auth.AspNetCore;
 
@@ -23,11 +24,33 @@ public sealed class AuthOptionsValidator : IValidateOptions<AuthOptions>
         if (!Validator.TryValidateObject(options, ctx, results, validateAllProperties: true))
             failures.AddRange(results.Select(r => r.ErrorMessage ?? "validation error"));
 
-        // Cross-property + byte-length checks.
-        if (!string.IsNullOrEmpty(options.SecretKey)
-            && Encoding.UTF8.GetByteCount(options.SecretKey) < 32)
+        // Signing key check — either Signing.Keys is populated, or SecretKey is.
+        if (options.Signing.Keys.Count == 0)
         {
-            failures.Add("AuthOptions.SecretKey must be at least 32 bytes (256 bits) when UTF-8-encoded.");
+            if (string.IsNullOrEmpty(options.SecretKey))
+                failures.Add("AuthOptions.SecretKey is required when AuthOptions.Signing.Keys is empty.");
+            else if (Encoding.UTF8.GetByteCount(options.SecretKey) < 32)
+                failures.Add("AuthOptions.SecretKey must be at least 32 bytes (256 bits) when UTF-8-encoded.");
+        }
+        else
+        {
+            // Validate each descriptor by asking the resolver to build a security key.
+            foreach (var k in options.Signing.Keys)
+            {
+                if (string.IsNullOrEmpty(k.Kid))
+                {
+                    failures.Add("AuthOptions.Signing.Keys[*].Kid is required.");
+                    continue;
+                }
+                try { _ = SigningKeyResolver.BuildValidationKey(k); }
+                catch (Exception ex) { failures.Add($"Signing.Keys['{k.Kid}']: {ex.Message}"); }
+            }
+
+            if (!string.IsNullOrEmpty(options.Signing.ActiveKid)
+                && !options.Signing.Keys.Any(k => k.Kid == options.Signing.ActiveKid))
+            {
+                failures.Add($"Signing.ActiveKid '{options.Signing.ActiveKid}' is not present in Signing.Keys.");
+            }
         }
 
         if (options.TokenLifetime <= TimeSpan.Zero)

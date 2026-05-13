@@ -3,6 +3,28 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-05-13
+
+Signing-key rotation with `kid`, multi-key validation window, optional asymmetric signing (RS256 / ES256), authorization policy helpers, cookie auth scheme, rate-limit integration, and a JWKS endpoint.
+
+### Added
+- **Signing-key rotation** — `AuthOptions.Signing.Keys`, `Signing.ActiveKid`, `Signing.KeyRetention` (default 7d). Tokens carry a `kid` header; the bearer pipeline picks the right key by `kid` and accepts every descriptor in the retention window. Rotation is hot-reloaded via `IOptionsMonitor` — no host restart. (TSA-55, TSA-56)
+- **RS256 / ES256 asymmetric signing** — `SigningAlgorithm` enum, PEM-loaded private/public keys, `SigningKeyResolver` builds the matching `SecurityKey`. HS256 stays the zero-config default. (TSA-57)
+- **JWKS endpoint** — `endpoints.MapTechTeaStudioJwks()` serves `/.well-known/jwks.json` with the public-key half of every RS256/ES256 descriptor in retention. HMAC entries are intentionally excluded. (TSA-57)
+- **Authorization policy helpers** — `AuthPolicies` constants + `AddTechTeaStudioPolicies()` extension wires four built-ins: `Authenticated`, `RequireSubject`, `RequireEmail`, `EmailVerified`. Backed by `HasClaimAuthorizationHandler` — no inline `RequireClaim` magic strings. (TSA-67)
+- **Cookie auth scheme** — `.AddTechTeaStudioCookieAuth()` registers a hardened cookie scheme (`HttpOnly`, `SameSite=Strict`, `Secure=Always`) alongside the bearer scheme. API requests get a JSON 401/403 instead of a redirect. `RefreshCookieHelper` writes / reads / clears the refresh-token cookie. (TSA-70)
+- **Rate-limit integration** (net8+) — `AddTechTeaStudioRateLimit()` registers the `tts-auth-login` fixed-window policy (5 requests / IP / minute by default). 429 response is JSON, matching the 401 contract. (TSA-69)
+- **`JwtTokenProvider.BuildValidationParameters(AuthOptions)`** — public helper that mirrors the bearer pipeline's validation parameters. Useful for self-validation in worker / message-bus consumers.
+
+### Changed
+- **`JwtTokenProvider` ctor** now takes `IOptionsMonitor<AuthOptions>` (DI provides this automatically). The previous `IOptions<AuthOptions>` ctor was removed because both ctors made DI's resolver ambiguous. For non-DI / test paths use `JwtTokenProvider.ForOptions(IOptions<...>)` or the in-tree `AuthOptions.ToMonitor()` extension.
+- **`AuthOptions.SecretKey`** is no longer marked `[Required]` / `[MinLength(32)]` at the DataAnnotations level. The cross-property `AuthOptionsValidator` enforces it conditionally: required only when `Signing.Keys` is empty.
+- **Library now references `Microsoft.AspNetCore.App` framework reference** to pick up `Microsoft.AspNetCore.Routing`, `Microsoft.AspNetCore.Authentication.Cookies`, and (on net8+) `Microsoft.AspNetCore.RateLimiting` without per-TFM `PackageReference` entries.
+
+### Backward compatibility
+- Apps using the legacy single `SecretKey` HS256 path keep working — when `Signing.Keys` is empty the library synthesizes a single HS256 descriptor with `kid = "default"`.
+- Tokens issued by 0.3.x (no `kid` header) keep validating: the bearer middleware's `IssuerSigningKeyResolver` returns the full key set when the header is absent.
+
 ## [0.3.1] — 2026-05-13
 
 CI/CD trigger moved to the `product` release branch to match the TechTeaStudio convention.

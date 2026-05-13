@@ -13,8 +13,9 @@ public class RefreshTokenServiceTests
 {
     private static RefreshTokenService NewService(out InMemoryRefreshTokenStore store, AuthOptions? options = null)
     {
-        var opts = Options.Create(options ?? TestAuthOptions.Create());
-        var provider = new JwtTokenProvider(opts);
+        var concrete = options ?? TestAuthOptions.Create();
+        var opts = Options.Create(concrete);
+        var provider = new JwtTokenProvider(concrete.ToMonitor());
         store = new InMemoryRefreshTokenStore();
         return new RefreshTokenService(provider, store, opts);
     }
