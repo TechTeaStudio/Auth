@@ -37,6 +37,7 @@
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.Abstractions\TechTeaStudio.Auth.OAuth.Abstractions\TechTeaStudio.Auth.OAuth.Abstractions.csproj" />
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.EFCore\TechTeaStudio.Auth.OAuth.EFCore\TechTeaStudio.Auth.OAuth.EFCore.csproj" />
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.Google\TechTeaStudio.Auth.OAuth.Google\TechTeaStudio.Auth.OAuth.Google.csproj" />
+    <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.GitHub\TechTeaStudio.Auth.OAuth.GitHub\TechTeaStudio.Auth.OAuth.GitHub.csproj" />
   </ItemGroup>
 
 </Project>

@@ -10,16 +10,16 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
-    <PackageId>TechTeaStudio.Auth.OAuth.Google</PackageId>
+    <PackageId>TechTeaStudio.Auth.OAuth.GitHub</PackageId>
     <Version>0.7.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
-    <Description>Google Sign-In provider for TechTeaStudio.Auth.OAuth. Validates Google ID tokens (mobile / web / desktop client IDs) via Google.Apis.Auth and integrates with the ExternalLoginService orchestrator.</Description>
+    <Description>GitHub OAuth 2.0 provider for TechTeaStudio.Auth — handles authorization-code exchange against GitHub's API.</Description>
     <RepositoryUrl>https://github.com/TechTeaStudio/Auth</RepositoryUrl>
     <PackageProjectUrl>https://github.com/TechTeaStudio/Auth</PackageProjectUrl>
     <PackageIcon>icon.png</PackageIcon>
     <Copyright>Copyright © Tech Tea Studio 2026</Copyright>
-    <PackageTags>auth;oauth;oidc;google;sign-in;external-login;TechTeaStudio</PackageTags>
+    <PackageTags>auth;oauth;oidc;github;sign-in;external-login;TechTeaStudio</PackageTags>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -29,7 +29,22 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.Abstractions\TechTeaStudio.Auth.OAuth.Abstractions\TechTeaStudio.Auth.OAuth.Abstractions.csproj" />
-    <PackageReference Include="Google.Apis.Auth" Version="1.69.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0'">
+    <PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>

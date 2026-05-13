@@ -3,6 +3,20 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-05-13
+
+New OAuth provider: GitHub. Authorization-code exchange via GitHub's REST API.
+
+### New packages
+- **TechTeaStudio.Auth.OAuth.GitHub** — `IExternalAuthProvider` implementation for GitHub OAuth 2.0. Public API:
+  - `GitHubAuthProvider` — name `"GitHub"`. `ValidateAsync(code)` exchanges the code for an access token, fetches the user profile and primary verified email, returns `ExternalLoginInfo` or null on any failure.
+  - `GitHubAuthProviderOptions` — `ClientId`, `ClientSecret`, `RequireEmailVerified` (default true), `UserAgent`.
+  - `AddGitHubAuthProvider(IAuthBuilder, configure?, sectionName="Auth:GitHub")` — wires the provider with a typed `HttpClient` and binds options.
+
+### Notes
+- All other TTS packages bumped to 0.7.0 to keep the constellation aligned (following the 0.6.0 precedent when OAuth.Google was introduced).
+- The provider uses `System.Text.Json` only — no `Octokit` or other heavy deps. Two HTTP calls per validation: `POST /login/oauth/access_token` then `GET /user` + `GET /user/emails`.
+
 ## [0.6.1] — 2026-05-13
 
 NuGet packaging fix. No API changes, no source-compatibility breaks.

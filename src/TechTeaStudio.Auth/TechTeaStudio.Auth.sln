@@ -25,6 +25,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechTeaStudio.Auth.OAuth.Go
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechTeaStudio.Auth.OAuth.EFCore", "..\TechTeaStudio.Auth.OAuth.EFCore\TechTeaStudio.Auth.OAuth.EFCore\TechTeaStudio.Auth.OAuth.EFCore.csproj", "{ECADB0F9-248E-4A65-A15B-436EA50DFE1C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechTeaStudio.Auth.OAuth.GitHub", "..\TechTeaStudio.Auth.OAuth.GitHub\TechTeaStudio.Auth.OAuth.GitHub\TechTeaStudio.Auth.OAuth.GitHub.csproj", "{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -167,6 +169,18 @@ Global
 		{ECADB0F9-248E-4A65-A15B-436EA50DFE1C}.Release|x64.Build.0 = Release|Any CPU
 		{ECADB0F9-248E-4A65-A15B-436EA50DFE1C}.Release|x86.ActiveCfg = Release|Any CPU
 		{ECADB0F9-248E-4A65-A15B-436EA50DFE1C}.Release|x86.Build.0 = Release|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Debug|x64.Build.0 = Debug|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Debug|x86.Build.0 = Debug|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Release|x64.ActiveCfg = Release|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Release|x64.Build.0 = Release|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Release|x86.ActiveCfg = Release|Any CPU
+		{A7F0A400-9370-4C50-8B5E-BE4DE31A04E7}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
