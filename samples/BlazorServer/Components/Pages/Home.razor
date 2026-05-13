@@ -1,0 +1,12 @@
+@page "/"
+
+<h1>Home</h1>
+
+<AuthorizeView>
+    <Authorized>
+        <p>You are signed in. Visit <a href="/secret">the secret area</a>.</p>
+    </Authorized>
+    <NotAuthorized>
+        <p>Public page. <a href="/login">Sign in</a> to unlock the rest.</p>
+    </NotAuthorized>
+</AuthorizeView>

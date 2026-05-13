@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>TechTeaStudio.Auth.Samples.MinimalApi</RootNamespace>
+    <AssemblyName>TechTeaStudio.Auth.Samples.MinimalApi</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TechTeaStudio.Auth\TechTeaStudio.Auth\TechTeaStudio.Auth.csproj" />
+    <ProjectReference Include="..\..\src\TechTeaStudio.Auth.EFCore\TechTeaStudio.Auth.EFCore\TechTeaStudio.Auth.EFCore.csproj" />
+    <ProjectReference Include="..\..\src\TechTeaStudio.Auth.Swashbuckle\TechTeaStudio.Auth.Swashbuckle\TechTeaStudio.Auth.Swashbuckle.csproj" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.7.3" />
+  </ItemGroup>
+
+</Project>

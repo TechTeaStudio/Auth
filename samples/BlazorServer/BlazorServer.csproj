@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>TechTeaStudio.Auth.Samples.BlazorServer</RootNamespace>
+    <AssemblyName>TechTeaStudio.Auth.Samples.BlazorServer</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TechTeaStudio.Auth\TechTeaStudio.Auth\TechTeaStudio.Auth.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,21 @@
+@inherits LayoutComponentBase
+
+<main style="font-family: system-ui; max-width: 720px; margin: 2rem auto; padding: 0 1rem;">
+    <header style="display: flex; align-items: center; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #ddd;">
+        <strong>TechTeaStudio.Auth — Blazor sample</strong>
+        <span style="flex: 1;"></span>
+        <AuthorizeView>
+            <Authorized>
+                Signed in as <em>@context.User.Identity!.Name</em>
+                <form method="post" action="/sign-out" style="display:inline">
+                    <AntiforgeryToken />
+                    <button type="submit">Sign out</button>
+                </form>
+            </Authorized>
+            <NotAuthorized>
+                <a href="/login">Sign in</a>
+            </NotAuthorized>
+        </AuthorizeView>
+    </header>
+    @Body
+</main>

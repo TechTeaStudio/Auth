@@ -32,7 +32,8 @@ public static class TokenHasher
         return hex.ToString();
     }
 
-    internal static string NewRawToken()
+    /// <summary>Generates a fresh, URL-safe 48-byte raw refresh token string.</summary>
+    public static string NewRawToken()
     {
         var bytes = RandomNumberGenerator.GetBytes(48);
         // base64url, no padding — URL-safe across browser/header transports.
