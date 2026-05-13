@@ -6,7 +6,7 @@ namespace TechTeaStudio.Auth.Signing;
 
 /// <summary>
 /// Resolves <see cref="SigningKeyDescriptor"/> entries (and the legacy
-/// <see cref="AuthOptions.SecretKey"/>) into <see cref="SecurityKey"/> and
+/// <see cref="JwtOptions.SecretKey"/>) into <see cref="SecurityKey"/> and
 /// <see cref="SigningCredentials"/> instances. Centralised here so the JWT
 /// provider and the bearer middleware see exactly the same key material.
 /// </summary>

@@ -84,7 +84,7 @@ public static class AuthBuilderExtensions
         return builder;
     }
 
-    /// <summary>Registers an <see cref="IClaimsProfile"/> used by consumers building claim sets.</summary>
+    /// <summary>Registers an <see cref="Profiles.IClaimsProfile"/> used by consumers building claim sets.</summary>
     public static IAuthBuilder UseClaimsProfile<TProfile>(this IAuthBuilder builder, ServiceLifetime lifetime = ServiceLifetime.Singleton)
         where TProfile : class, Profiles.IClaimsProfile
     {

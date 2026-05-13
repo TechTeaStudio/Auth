@@ -7,7 +7,7 @@ namespace TechTeaStudio.Auth.Redis;
 /// <summary>
 /// Redis-backed distributed <see cref="ILoginAttemptTracker"/>. Counter and lockout
 /// TTL are managed by Redis itself via <c>INCR</c> + <c>EXPIRE</c>, so the counter
-/// auto-resets after <see cref="AuthOptions.LockoutDuration"/>.
+/// auto-resets after <see cref="LockoutOptions.Duration"/>.
 /// </summary>
 public sealed class RedisLoginAttemptTracker : ILoginAttemptTracker
 {

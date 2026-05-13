@@ -1,9 +1,9 @@
 namespace TechTeaStudio.Auth.Signing;
 
 /// <summary>
-/// Nested signing-key configuration on <see cref="AuthOptions"/>. When
+/// Nested signing-key configuration on <see cref="JwtOptions"/>. When
 /// <see cref="Keys"/> is empty, the library synthesizes a single HS256 descriptor
-/// from <see cref="AuthOptions.SecretKey"/> with <c>kid = "default"</c> for backward compatibility.
+/// from <see cref="JwtOptions.SecretKey"/> with <c>kid = "default"</c> for backward compatibility.
 /// </summary>
 public sealed class SigningOptions
 {
@@ -16,7 +16,7 @@ public sealed class SigningOptions
 
     /// <summary>
     /// <c>kid</c> used for signing new tokens. <c>null</c> selects the first entry
-    /// in <see cref="Keys"/>, or "default" when the legacy <see cref="AuthOptions.SecretKey"/>
+    /// in <see cref="Keys"/>, or "default" when the legacy <see cref="JwtOptions.SecretKey"/>
     /// is in effect.
     /// </summary>
     public string? ActiveKid { get; set; }
