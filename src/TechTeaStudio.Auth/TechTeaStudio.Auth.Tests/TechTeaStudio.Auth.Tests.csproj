@@ -1,7 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <!--
+      net10.0 omitted: EFCore tests pull Microsoft.EntityFrameworkCore.InMemory 10.0.0
+      which is incompatible with the lib's EF Core 9.0 references. net8/net9 give us
+      sufficient coverage — the same source compiles for both, and runtime behaviour
+      on net10 is verified by the smoke-test on the Hyperion side.
+    -->
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
@@ -22,9 +28,6 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.0" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>

@@ -3,6 +3,19 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] — 2026-05-13
+
+NuGet packaging fix. No API changes, no source-compatibility breaks.
+
+### Fixed
+
+- **Hyperion (and any other consumer pinned to EF Core 9.x via Npgsql) couldn't install v0.6.0 because the EFCore packages required EF Core 10.0.0 on `net10.0`**. Dropped `net10.0` from `TechTeaStudio.Auth.EFCore` and `TechTeaStudio.Auth.OAuth.EFCore` — consumers on net10 runtime now resolve the `net9.0` build (EF Core 9.0.0), which still works on EF Core 9.x or 10.x.
+- **Base `TechTeaStudio.Auth` net10 build pinned `Microsoft.AspNetCore.Authentication.JwtBearer` at 10.0.0** which conflicted with consumers on JwtBearer 9.x. Relaxed to `9.0.0` — code uses only JwtBearer APIs present since 6.x, so the assembly built against 9.0 runs fine on consumers with JwtBearer 9.x or 10.x.
+
+### Notes
+
+- Test project's `net10.0` TFM was dropped (same EF Core 10 InMemory conflict). net8/net9 cover the contract; net10 runtime behaviour is verified end-to-end via consumer (Hyperion) integration.
+
 ## [0.6.0] — 2026-05-13
 
 **New chapter: OAuth / external sign-in.** Three new NuGet packages join the family. Base, EFCore, Redis, and Swashbuckle bump to 0.6.0 alongside (no breaking changes in those — coordinated minor bump).

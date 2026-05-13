@@ -1,7 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net6.0;net8.0;net9.0;net10.0</TargetFrameworks>
+    <!--
+      net10.0 deliberately omitted. The package's net9.0 build (compiled
+      against EF Core 9.0.0) is selected for net10 consumers via TFM
+      compatibility, so apps on net10 keep working with either EF Core 9.x
+      OR 10.x at runtime. Pinning EF Core 10.0.0 here would force every
+      net10 consumer onto EF 10 — blocked today by Npgsql.EFCore.PostgreSQL 9.x.
+    -->
+    <TargetFrameworks>net6.0;net8.0;net9.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
@@ -11,7 +18,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.EFCore</PackageId>
-    <Version>0.6.0</Version>
+    <Version>0.6.1</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>EF Core implementation of TechTeaStudio.Auth's IRefreshTokenStore. Ship-ready entity, fluent mapping helper, and the store class.</Description>
@@ -46,10 +53,6 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.0" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0" />
-  </ItemGroup>
 
   <ItemGroup>
     <None Include="..\..\TechTeaStudio.Auth\icon.png" Pack="true" PackagePath="\" />
