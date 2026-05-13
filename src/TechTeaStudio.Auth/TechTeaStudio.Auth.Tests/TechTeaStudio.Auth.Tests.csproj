@@ -31,6 +31,9 @@
     <ProjectReference Include="..\TechTeaStudio.Auth\TechTeaStudio.Auth.csproj" />
     <ProjectReference Include="..\..\TechTeaStudio.Auth.EFCore\TechTeaStudio.Auth.EFCore\TechTeaStudio.Auth.EFCore.csproj" />
     <ProjectReference Include="..\..\TechTeaStudio.Auth.Swashbuckle\TechTeaStudio.Auth.Swashbuckle\TechTeaStudio.Auth.Swashbuckle.csproj" />
+    <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.Abstractions\TechTeaStudio.Auth.OAuth.Abstractions\TechTeaStudio.Auth.OAuth.Abstractions.csproj" />
+    <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.EFCore\TechTeaStudio.Auth.OAuth.EFCore\TechTeaStudio.Auth.OAuth.EFCore.csproj" />
+    <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.Google\TechTeaStudio.Auth.OAuth.Google\TechTeaStudio.Auth.OAuth.Google.csproj" />
   </ItemGroup>
 
 </Project>

@@ -374,6 +374,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 ## Further reading
 
 - [docs/RECIPES.md](docs/RECIPES.md) &mdash; common patterns: login, refresh, revoke, reset, 2FA, API keys, audit.
+- [docs/OAUTH.md](docs/OAUTH.md) &mdash; Google / GitHub / Apple sign-in via the OAuth sibling packages.
 - [docs/MIGRATION-Hyperion.md](docs/MIGRATION-Hyperion.md) &mdash; moving Hyperion Omni Client onto the library.
 - [docs/MIGRATION-Pello.md](docs/MIGRATION-Pello.md) &mdash; moving Pello onto the library.
 - [SECURITY.md](SECURITY.md) &mdash; threat model and reporting policy.

@@ -3,6 +3,39 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-05-13
+
+**New chapter: OAuth / external sign-in.** Three new NuGet packages join the family. Base, EFCore, Redis, and Swashbuckle bump to 0.6.0 alongside (no breaking changes in those — coordinated minor bump).
+
+### New packages
+
+- **`TechTeaStudio.Auth.OAuth.Abstractions`** — provider-agnostic OAuth surface:
+  - `IExternalAuthProvider` — validates raw provider credentials, normalizes to `ExternalLoginInfo`.
+  - `IExternalLoginStore` — persistence of `(provider, providerUserId) → userId` links. Default `InMemoryExternalLoginStore` with SHOUTY multi-instance warning.
+  - `IExternalUserBridge` — adapter to the consumer's `IUserRepository` (3 methods: find-by-email, get-by-id, create-from-external).
+  - `ExternalLoginService` — three-outcome orchestrator: `Authenticated` / `RequiresPassword` / `RequiresRegistration`. Continuation tokens are HMAC-signed via `SignedTokenService`, 10-minute lifetime, single-use through `IRevokedTokenStore`.
+  - `IAuthBuilder` extensions: `.AddTechTeaStudioOAuth()`, `.UseExternalLoginStore<T>()`, `.UseExternalUserBridge<T>()`, `.AddExternalAuthProvider<T>()`.
+- **`TechTeaStudio.Auth.OAuth.Google`** — Google Sign-In:
+  - `GoogleAuthProvider : IExternalAuthProvider` (provider name `"Google"`) using `Google.Apis.Auth 1.69.0`.
+  - Multi-audience support — one backend serves Web + Android + iOS + Desktop client IDs.
+  - `.AddGoogleAuthProvider()` binds `Auth:Google` configuration.
+- **`TechTeaStudio.Auth.OAuth.EFCore`** — `ExternalLoginEntity` + `EfCoreExternalLoginStore<TContext>` + `ModelBuilder.AddTechTeaStudioExternalLogins()`. Unique index on `(Provider, ProviderUserId)`, composite index on `(UserId, Provider)`, `ConcurrencyStamp` token.
+
+### Tests
+
+- 20 new tests covering `ExternalLoginService` (all four flows + continuation-token single-use + invalid credential paths), `EfCoreExternalLoginStore` (contract behavior), `GoogleAuthProvider` (error normalization). 161/161 total across net8/9/10.
+
+### Reference docs
+
+- **[docs/OAUTH.md](docs/OAUTH.md)** — end-to-end Hyperion wire-up: csproj, config, `IExternalUserBridge` implementation, controller (four endpoints, one line each), mobile flow, custom-provider template (GitHub).
+
+### Bumped (no API changes)
+
+- `TechTeaStudio.Auth` → 0.6.0
+- `TechTeaStudio.Auth.EFCore` → 0.6.0
+- `TechTeaStudio.Auth.Redis` → 0.6.0
+- `TechTeaStudio.Auth.Swashbuckle` → 0.6.0
+
 ## [0.5.0] — 2026-05-13
 
 Breaking-change cleanup release. Driven by a critical self-review of v0.4.0 — fixes a real DI bug, a silent SignedTokenService failure mode, a SQL Server-only EFCore bug, a Swashbuckle Minimal-API miss, plus architectural cleanup (product-specific code out of the library).
