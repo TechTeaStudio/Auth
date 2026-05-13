@@ -3,6 +3,24 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-05-13
+
+Documentation, CI/CD pipeline, and the Hyperion-legacy `nameid` claim adapter.
+
+### Added
+- **CI/CD** — `.github/workflows/dotnet.yml` invokes the shared `TechTeaStudio/.github` reusable NuGet publish workflow on push/PR to `main`. Build, test, pack, and publish with `--skip-duplicate`. (TSA-9, TSA-38, TSA-39, TSA-40)
+- **Hyperion-legacy `nameid` fallback** — `JwtTokenReader.TryRead` now reads `UserId` from `nameid` when `sub` is absent. Lets a service that consumes tokens issued by pre-`TechTeaStudio.Auth` Hyperion code parse them without rewrite. (TSA-73)
+- **[docs/RECIPES.md](docs/RECIPES.md)** — 10 patterns covering login, refresh, immediate revocation, password reset, email confirmation, 2FA, API-key M2M auth, custom audit sink, metrics scraping, and multi-app claim profiles. (TSA-78)
+- **[docs/MIGRATION-Hyperion.md](docs/MIGRATION-Hyperion.md)** — step-by-step migration guide for the Hyperion Omni Client, with a lazy-upgrade strategy for the password hash. (TSA-71)
+- **[docs/MIGRATION-Pello.md](docs/MIGRATION-Pello.md)** — three-step migration guide for Pello, including the plain-text → PBKDF2 password backfill. (TSA-72)
+- **[SECURITY.md](SECURITY.md)** — threat model, defenses shipped, hardening checklist, and the security-reporting policy. (TSA-75)
+- **README rewrite** — re-aligned to the actually shipped public API; replaced the aspirational v0.1 quick-start with working snippets and added 401 contract / observability sections. (TSA-74)
+
+### Deferred to a later release
+- Minimal-API and Blazor sample apps. (TSA-76, TSA-77)
+- BenchmarkDotNet project. (TSA-79)
+- TSA-67..70 (authorization policy helpers, Swagger Bearer integration, rate limiter, cookie scheme), TSA-55..57 (signing-key rotation, multi-key validation, RS256/ES256), TSA-49/TSA-50 (EF Core / Redis stores), TSA-52 (Redis lockout) remain on the roadmap.
+
 ## [0.2.0] — 2026-05-13
 
 Security hardening, observability, single-use signed tokens, TOTP, recovery codes, and an API-key authentication scheme.

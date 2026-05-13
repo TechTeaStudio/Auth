@@ -5,7 +5,7 @@
 <h1 align="center">TechTeaStudio.Auth</h1>
 
 <p align="center">
-  Drop-in authentication primitives for .NET. JWT, PBKDF2 password hashing, refresh tokens, multi-app claim profiles, and one-line ASP.NET Core wire-up &mdash; without pulling in a full identity framework.
+  Drop-in authentication primitives for .NET. JWT, PBKDF2 password hashing, refresh-token rotation, multi-app claim profiles, lockout, audit, 2FA, and one-line ASP.NET Core wire-up &mdash; without pulling in a full identity framework.
 </p>
 
 <p align="center">
@@ -15,8 +15,6 @@
   <a href="https://github.com/TechTeaStudio/Auth/actions/workflows/dotnet.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/TechTeaStudio/Auth/dotnet.yml?branch=main&logo=github&label=build" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
-
-> **Status:** early scaffold. Public surface is being defined under the `TSA-*` issue tracker; the first tagged release will lock it in. See [CHANGELOG.md](CHANGELOG.md) for what's planned per release.
 
 ## Overview
 
@@ -39,7 +37,7 @@ You probably **don't** want this library when you need full OAuth2 / OIDC server
 
 | Library / Approach | What it gives you | Footprint | Password hashing | Refresh tokens | Multi-app claim profiles |
 |---|---|---|---|---|---|
-| **TechTeaStudio.Auth** | JWT + password hashing + refresh tokens + middleware | Small (~one package) | PBKDF2-SHA256, sane defaults | Built-in, single-use, rotated | First-class |
+| **TechTeaStudio.Auth** | JWT + password hashing + refresh tokens + lockout + audit + 2FA + middleware | Small (~one package) | PBKDF2-SHA256, sane defaults | Built-in, single-use, rotated | First-class |
 | **ASP.NET Core Identity** | Full user/role store + UI scaffolding | Large (EF Core + UI + scaffolding) | PBKDF2 (configurable) | Via separate add-on | Manual claims transformer |
 | **OpenIddict / Duende IdentityServer** | OAuth2 / OIDC server | Large (server-side flows, endpoints) | Delegated to your store | First-class | Via scope/claim mapping |
 | **`Microsoft.AspNetCore.Authentication.JwtBearer` (raw)** | JWT validation only | Tiny | None | None | Manual |
@@ -56,175 +54,254 @@ dotnet add package TechTeaStudio.Auth
 Or pin a specific version in `.csproj`:
 
 ```xml
-<PackageReference Include="TechTeaStudio.Auth" Version="0.1.0" />
+<PackageReference Include="TechTeaStudio.Auth" Version="0.2.0" />
 ```
 
 ## Quick start
 
-> The code below describes the **target API surface** (TSA-1, TSA-2, TSA-5). Signatures will be locked in with the first tagged release.
-
 ### ASP.NET Core wire-up
 
 ```csharp
-using TechTeaStudio.Auth;
+using TechTeaStudio.Auth.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddTechTeaStudioAuth(options =>
-{
-    options.Jwt.SigningKey = builder.Configuration["Auth:SigningKey"]!;
-    options.Jwt.Issuer     = "https://api.example.com";
-    options.Jwt.Audience   = "example-clients";
-    options.Jwt.Lifetime   = TimeSpan.FromMinutes(15);
-
-    options.RefreshTokens.Lifetime = TimeSpan.FromDays(30);
-});
+builder.Services.AddTechTeaStudioAuth(builder.Configuration);
 
 var app = builder.Build();
+app.UseSecurityHeaders();   // optional
 app.UseAuthentication();
 app.UseAuthorization();
 ```
 
-### Issuing tokens
+```jsonc
+// appsettings.json
+{
+  "Auth": {
+    "SecretKey": "<32-byte-secret-or-longer>",
+    "Issuer": "https://api.example.com",
+    "Audience": "example-clients",
+    "TokenLifetime": "00:30:00",
+    "RefreshTokenLifetime": "7.00:00:00"
+  }
+}
+```
+
+`AddTechTeaStudioAuth` registers `ITokenProvider`, `ITokenReader`, `IPasswordHasher`, `IRefreshTokenStore` (in-memory by default), `RefreshTokenService`, `ILoginAttemptTracker`, `IRevokedTokenStore`, `IAuthAuditLogger` (null sink), the JWT bearer scheme, ASP.NET Core authorization, the `RefreshTokenCleanupService` + `RevokedTokenCleanupService` background workers, and startup validation of `AuthOptions`.
+
+### Issuing a token pair
 
 ```csharp
 public sealed class LoginEndpoint
 {
-    private readonly ITokenProvider _tokens;
     private readonly IPasswordHasher _passwords;
+    private readonly RefreshTokenService _refresh;
     private readonly IUserRepository _users;
-    private readonly IRefreshTokenStore _refresh;
+
+    public LoginEndpoint(IPasswordHasher p, RefreshTokenService r, IUserRepository u)
+        => (_passwords, _refresh, _users) = (p, r, u);
 
     public async Task<IResult> Handle(LoginRequest req, CancellationToken ct)
     {
         var user = await _users.FindAsync(req.Email, ct);
-        if (user is null || !_passwords.Verify(req.Password, user.PasswordHash))
+        if (user is null || !_passwords.Verify(user.PasswordHash, req.Password))
             return Results.Unauthorized();
 
-        var access  = _tokens.Issue(user.Id, user.Email, user.Roles);
-        var refresh = await _refresh.IssueAsync(user.Id, ct);
+        var pair = await _refresh.IssueAsync(user.Id, ClaimsProfiles.Hyperion.BuildClaims(
+            new ClaimsBuilderInput
+            {
+                UserId = user.Id, Username = user.Username, Email = user.Email, Roles = user.Roles,
+            }), ct);
 
-        return Results.Ok(new { access, refresh });
+        return Results.Ok(new { pair.AccessToken, pair.RefreshToken, pair.RefreshTokenExpiresAt });
     }
 }
-```
-
-### Hashing passwords
-
-```csharp
-var hash    = _passwords.Hash("correct horse battery staple");
-var matches = _passwords.Verify("correct horse battery staple", hash);
 ```
 
 ### Rotating refresh tokens
 
 ```csharp
-var newPair = await _refresh.RotateAsync(presentedRefreshToken, ct);
-// returns a fresh access + refresh pair, marks the old refresh as used
+var pair = await _refresh.RotateAsync(req.RefreshToken,
+    ClaimsProfiles.Hyperion.BuildClaims(new ClaimsBuilderInput { UserId = req.UserId }), ct);
+
+return pair is null ? Results.Unauthorized() : Results.Ok(pair);
 ```
+
+Refresh tokens are single-use. A successful rotation revokes the presented token and emits a fresh one. Presenting an already-revoked token revokes the **whole rotation chain** when `AuthOptions.RevokeChainOnRefreshReuse` is on (default).
+
+### Hashing passwords
+
+```csharp
+var hash    = _passwords.Hash("correct horse battery staple");
+var matches = _passwords.Verify(hash, "correct horse battery staple");   // (hashed, provided)
+```
+
+PBKDF2-SHA256 · 600 000 iterations · 16-byte salt · 32-byte digest · constant-time verify.
+
+### One-shot signed tokens
+
+```csharp
+// password reset
+var token = _resetTokens.Generate(user.Id);          // 30-min default lifetime
+var r     = await _resetTokens.ValidateAsync(token); // one-shot — replay returns Success=false
+
+// email confirmation
+var token = _emailTokens.Generate(user.Id, user.Email);  // 24-hour default
+var r     = await _emailTokens.ValidateAsync(token);
+```
+
+Single-use is enforced via the `IRevokedTokenStore` deny-list — the `jti` of the token is revoked on the first successful validation.
+
+### Two-factor (TOTP + recovery codes)
+
+```csharp
+var secret        = RandomNumberGenerator.GetBytes(20);
+var base32Secret  = OtpAuthUri.ToBase32(secret);
+var provisioning  = OtpAuthUri.Build("MyApp", user.Email, base32Secret); // → otpauth://totp/...
+var recoveryCodes = RecoveryCodeService.Generate();                       // 10 × 8-char codes
+
+// Verify what the user typed from Google/Microsoft Authenticator:
+var ok = TotpValidator.Validate(secret, typedCode, DateTimeOffset.UtcNow);
+```
+
+### API-key authentication scheme
+
+```csharp
+services.AddSingleton<IApiKeyStore>(new FuncApiKeyStore((raw, ct) =>
+    Task.FromResult(LookUp(raw))));
+services.AddAuthentication().AddTechTeaStudioApiKey();
+
+app.MapGet("/internal/hooks", () => "ok")
+   .RequireAuthorization();
+```
+
+Reads `X-Api-Key` by default; also accepts `Authorization: ApiKey <key>` when the option is on.
 
 ## Multi-app claim profiles
 
-Different apps publish different claim shapes; `TechTeaStudio.Auth` lets both work without forking the library (TSA-7).
+Different apps publish different claim shapes; `TechTeaStudio.Auth` lets each one work without forking the library.
 
 ```csharp
-builder.Services.AddTechTeaStudioAuth(options =>
+// Hyperion (sub / unique_name / email / role + legacy nameid)
+var claims = ClaimsProfiles.Hyperion.BuildClaims(new ClaimsBuilderInput
 {
-    options.ClaimProfile = ClaimProfiles.Hyperion;   // sub / unique_name / role
-    // or
-    options.ClaimProfile = ClaimProfiles.Pello;      // Email / DisplayName
-    // or
-    options.ClaimProfile = new ClaimProfile
-    {
-        SubjectClaim     = "uid",
-        UserNameClaim    = "preferred_username",
-        RoleClaim        = "role",
-    };
+    UserId = user.Id, Username = user.Username, Email = user.Email, Roles = user.Roles,
 });
+
+// Pello (email / unique_name)
+var claims = ClaimsProfiles.Pello.BuildClaims(new ClaimsBuilderInput
+{
+    Email = user.Email, Username = user.DisplayName,
+});
+
+// Custom — implement IClaimsProfile.
 ```
 
 ## Security defaults
 
 | Concern | Default | Knob |
 |---|---|---|
-| Password hashing | PBKDF2-SHA256, 600 000 iterations, 16-byte salt | `options.Passwords.Iterations` |
-| Access token lifetime | 15 minutes | `options.Jwt.Lifetime` |
-| Refresh token lifetime | 30 days | `options.RefreshTokens.Lifetime` |
-| Refresh token reuse | Single-use, rotated on every refresh | not configurable |
-| Signing algorithm | HS256 | (RS256 planned post-1.0) |
-| Clock skew | 30 seconds | `options.Jwt.ClockSkew` |
+| Password hashing | PBKDF2-SHA256, 600 000 iterations, 16-byte salt | (algorithm version is fixed; iteration count is fixed in 0.x) |
+| Access token lifetime | 30 minutes | `AuthOptions.TokenLifetime` |
+| Refresh token lifetime | 7 days | `AuthOptions.RefreshTokenLifetime` |
+| Refresh token reuse | Single-use, rotated; replay revokes the chain | `AuthOptions.RevokeChainOnRefreshReuse` |
+| Signing algorithm | HS256 | (RS256/ES256 on roadmap) |
+| Clock skew | 5 minutes | `AuthOptions.ClockSkew` |
+| Account lockout | 5 failed attempts → 15-minute lockout | `AuthOptions.MaxFailedLoginAttempts`, `AuthOptions.LockoutDuration` |
+| Refresh-token cleanup | every 1 hour | `AuthOptions.RefreshTokenCleanupInterval` |
 
-The library refuses to start with a missing or short signing key &mdash; there is no anonymous fallback.
+The library refuses to start with a missing or short signing key (< 32 UTF-8 bytes).
 
-## Public API (target)
+## 401 response contract
+
+When the bearer pipeline rejects a request, the response body is:
+
+```json
+{ "error": "token_expired", "message": "Token has expired.", "traceId": "0HMV..." }
+```
+
+`error` is a stable string from `AuthErrorCodes`:
+
+- `missing_token`, `unauthorized` &mdash; generic.
+- `token_expired`, `token_not_yet_valid` &mdash; lifetime errors.
+- `invalid_signature`, `invalid_issuer`, `invalid_audience`, `malformed_token` &mdash; structural errors.
+
+Switch on `error` to drive client behaviour (e.g. `token_expired` → silently refresh).
+
+## Public API (current shipped surface)
 
 ```csharp
+namespace TechTeaStudio.Auth.Abstractions;
+
 public interface ITokenProvider
 {
-    string Issue(string subject, string userName, IEnumerable<string> roles, IDictionary<string, string>? extra = null);
-    AuthTokenInfo Inspect(string token);
+    string CreateToken(string userId, IEnumerable<Claim> claims, TimeSpan lifetime);
+    ClaimsPrincipal? ValidateToken(string token);
 }
 
 public interface ITokenReader
 {
-    bool TryRead(string token, out AuthTokenInfo info);
+    AuthTokenInfo? TryRead(string token);
 }
 
 public interface IPasswordHasher
 {
     string Hash(string password);
-    bool Verify(string password, string hash);
-    bool NeedsRehash(string hash);
+    bool Verify(string hashedPassword, string providedPassword);
 }
 
 public interface IRefreshTokenStore
 {
-    Task<string> IssueAsync(string subject, CancellationToken ct);
-    Task<RefreshPair> RotateAsync(string presented, CancellationToken ct);
-    Task RevokeAsync(string presented, CancellationToken ct);
-    Task RevokeAllAsync(string subject, CancellationToken ct);
-}
-
-public sealed class AuthOptions
-{
-    public JwtOptions Jwt { get; init; } = new();
-    public PasswordOptions Passwords { get; init; } = new();
-    public RefreshTokenOptions RefreshTokens { get; init; } = new();
-    public ClaimProfile ClaimProfile { get; init; } = ClaimProfiles.Default;
+    Task<RefreshToken?> GetByTokenHashAsync(string tokenHash, CancellationToken ct = default);
+    Task<IReadOnlyList<RefreshToken>> GetActiveForUserAsync(string userId, CancellationToken ct = default);
+    Task CreateAsync(RefreshToken token, CancellationToken ct = default);
+    Task RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken ct = default);
+    Task RevokeAllForUserAsync(string userId, CancellationToken ct = default);
+    Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken ct = default);
+    Task DeleteAllForUserAsync(string userId, CancellationToken ct = default);
 }
 ```
 
-Exceptions that escape the issue/verify paths are wrapped in `AuthException` &mdash; bad signature, expired token, replayed refresh, oversize claim payload.
+## Observability
 
-## Roadmap
+`AuthDiagnostics` exposes a `System.Diagnostics.Metrics.Meter` named `TechTeaStudio.Auth` and an `ActivitySource` of the same name. Counter names are Prometheus-friendly:
 
-Tracked in the `TechTeaStudioAuth` beads database. Highlights:
+- `tts_auth_login_succeeded_total`
+- `tts_auth_login_failed_total`
+- `tts_auth_tokens_issued_total`
+- `tts_auth_refresh_rotated_total`
+- `tts_auth_refresh_reuse_total`
+- `tts_auth_accounts_locked_total`
 
-- **0.1.x** &mdash; core abstractions (TSA-1) + JWT HS256 (TSA-2) + PBKDF2-SHA256 (TSA-3) + in-memory refresh store (TSA-4) + `AddTechTeaStudioAuth()` (TSA-5).
-- **0.2.x** &mdash; security hardening (headers, lockout, rate limit) (TSA-6), multi-app claim profiles (TSA-7), audit logger + OpenTelemetry (TSA-43).
-- **0.3.x** &mdash; advanced token flows: email confirmation, password reset, M2M API keys (TSA-41).
-- **0.4.x** &mdash; two-factor: TOTP + recovery codes (TSA-42).
-- **1.0** &mdash; public API freeze, RS256 signing, migration guides for Hyperion and Pello (TSA-44).
+Plug an OpenTelemetry pipeline at the `TechTeaStudio.Auth` meter and they scrape into a single dashboard.
+
+Replace `NullAuthAuditLogger` with your own `IAuthAuditLogger` to get strongly-typed events (`LoginSucceeded`, `TokenIssued`, `RefreshReuseDetected`, …) to a database or log sink.
 
 ## Project layout
 
 ```
 Auth/
-├── src/TechTeaStudio.Auth/                            <- (target shape)
+├── src/TechTeaStudio.Auth/
 │   ├── TechTeaStudio.Auth.sln
-│   ├── TechTeaStudio.Auth/                            <- NuGet package source
-│   │   ├── Abstractions/                              <- ITokenProvider, ITokenReader, …
-│   │   ├── Jwt/                                       <- HS256 token provider/reader
-│   │   ├── Passwords/                                 <- PBKDF2-SHA256 hasher
-│   │   ├── RefreshTokens/                             <- store interface + in-memory impl
-│   │   ├── AspNetCore/                                <- AddTechTeaStudioAuth(), middleware
-│   │   ├── Profiles/                                  <- multi-app claim profiles
+│   ├── TechTeaStudio.Auth/                          <- NuGet package source
+│   │   ├── Abstractions/                            <- contracts + value objects
+│   │   ├── Jwt/                                     <- JwtTokenProvider / JwtTokenReader
+│   │   ├── Passwords/                               <- Pbkdf2PasswordHasher
+│   │   ├── RefreshTokens/                           <- service, hasher, store, cleanup
+│   │   ├── Lockout/                                 <- ILoginAttemptTracker + in-memory
+│   │   ├── Revocation/                              <- deny-list + cleanup
+│   │   ├── Tokens/                                  <- signed one-shot tokens
+│   │   ├── TwoFactor/                               <- TOTP + recovery codes + enrollment
+│   │   ├── Profiles/                                <- multi-app claim profiles
+│   │   ├── Observability/                           <- IAuthAuditLogger + AuthDiagnostics
+│   │   ├── AspNetCore/                              <- AddTechTeaStudioAuth(), middleware, ApiKey scheme
 │   │   └── AuthOptions.cs
-│   ├── TechTeaStudio.Auth.Tests/                      <- xUnit + FluentAssertions
-│   └── TechTeaStudio.Auth.Sample/                     <- minimal API + Blazor sample
-├── .github/workflows/dotnet.yml                       <- CI publish (shared TTS workflow)
+│   └── TechTeaStudio.Auth.Tests/                    <- xUnit + FluentAssertions
+├── docs/                                            <- recipes + migration guides
+├── .github/workflows/dotnet.yml                     <- CI (shared TTS NuGet publish workflow)
 ├── CHANGELOG.md
 ├── LICENSE
+├── SECURITY.md
 └── README.md
 ```
 
@@ -235,7 +312,7 @@ dotnet build src/TechTeaStudio.Auth/TechTeaStudio.Auth.sln
 dotnet test  src/TechTeaStudio.Auth/TechTeaStudio.Auth.sln
 ```
 
-The library multi-targets `net6.0;net8.0;net9.0;net10.0`. `net7.0` is intentionally skipped (EOL). The test and sample projects target `net8.0;net9.0;net10.0` only.
+The library multi-targets `net6.0;net8.0;net9.0;net10.0`. `net7.0` is intentionally skipped (EOL). The test project targets `net8.0;net9.0;net10.0` only.
 
 ## Versioning &amp; release
 
@@ -248,6 +325,13 @@ Version lives in `TechTeaStudio.Auth.csproj` as a 3-part `<Version>X.Y.Z</Versio
 Commit format is `vX.Y.Z <short description>`. Push to `main` triggers the shared TechTeaStudio NuGet publish workflow, which packs and pushes to nuget.org with `--skip-duplicate`. **Never push to nuget.org manually.**
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+
+## Further reading
+
+- [docs/RECIPES.md](docs/RECIPES.md) &mdash; common patterns: login, refresh, revoke, reset, 2FA, API keys, audit.
+- [docs/MIGRATION-Hyperion.md](docs/MIGRATION-Hyperion.md) &mdash; moving Hyperion Omni Client onto the library.
+- [docs/MIGRATION-Pello.md](docs/MIGRATION-Pello.md) &mdash; moving Pello onto the library.
+- [SECURITY.md](SECURITY.md) &mdash; threat model and reporting policy.
 
 ## License
 

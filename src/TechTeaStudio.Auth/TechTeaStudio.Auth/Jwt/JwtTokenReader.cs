@@ -34,7 +34,11 @@ public sealed class JwtTokenReader : ITokenReader
 
         return new AuthTokenInfo
         {
-            UserId   = FindClaim(jwt, AuthClaims.Subject) ?? string.Empty,
+#pragma warning disable CS0618
+            UserId   = FindClaim(jwt, AuthClaims.Subject)
+                    ?? FindClaim(jwt, AuthClaims.LegacyNameId)
+                    ?? string.Empty,
+#pragma warning restore CS0618
             Username = FindClaim(jwt, AuthClaims.Username) ?? string.Empty,
             Email    = FindClaim(jwt, AuthClaims.Email) ?? string.Empty,
             Roles    = roles,

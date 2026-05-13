@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Drop-in authentication primitives for .NET. JWT (HS256), PBKDF2-SHA256 password hashing, refresh tokens, multi-app claim profiles, and one-line ASP.NET Core wire-up.</Description>
@@ -22,16 +22,15 @@
     <Copyright>Copyright © Tech Tea Studio 2026</Copyright>
 
     <PackageReleaseNotes>
-v0.2.0 — Security hardening, observability, single-use signed tokens, TOTP, recovery codes, and an API-key authentication scheme.
+v0.3.0 — Documentation, CI/CD pipeline, and the Hyperion-legacy nameid claim adapter.
 
 Added:
-  * SecurityHeadersMiddleware + app.UseSecurityHeaders().
-  * ILoginAttemptTracker + InMemoryLoginAttemptTracker (configurable lockout).
-  * IRevokedTokenStore + InMemoryRevokedTokenStore (deny-list, consulted by the bearer pipeline) + RevokedTokenCleanupService.
-  * IAuthAuditLogger + InMemoryAuthAuditLogger (ring buffer); AuthDiagnostics ActivitySource + Prometheus-friendly counters.
-  * SignedTokenService + EmailConfirmationTokenService + PasswordResetTokenService (one-time use, HMAC-SHA256).
-  * TOTP (RFC 6238) generator/validator, recovery codes, otpauth:// URI builder, I2FaEnrollmentService contract.
-  * API-key authentication scheme: IApiKeyStore + ApiKeyAuthenticationHandler + AddTechTeaStudioApiKey().
+  * GitHub Actions CI/publish workflow (.github/workflows/dotnet.yml) targeting the shared TechTeaStudio reusable workflow.
+  * Hyperion-legacy fallback in JwtTokenReader: when the token has no sub claim, UserId is read from the legacy nameid claim.
+  * docs/RECIPES.md — 10 ready-to-paste patterns: login, refresh, revoke, reset, email confirmation, 2FA enrollment, API keys, audit, metrics, multi-app claim profiles.
+  * docs/MIGRATION-Hyperion.md and docs/MIGRATION-Pello.md — step-by-step migration guides.
+  * SECURITY.md — threat model + reporting policy.
+  * Re-aligned README with the actually shipped public API.
 
 Full changelog: https://github.com/TechTeaStudio/Auth/blob/main/CHANGELOG.md
     </PackageReleaseNotes>
