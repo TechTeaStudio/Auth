@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net6.0;net8.0;net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <PackageId>TechTeaStudio.Auth.Redis</PackageId>
+    <Version>0.4.0</Version>
+    <Authors>Ronald Ryan</Authors>
+    <Company>Tech Tea Studio</Company>
+    <Description>Redis-backed IRefreshTokenStore and ILoginAttemptTracker for TechTeaStudio.Auth — distributed lockout and refresh storage on top of StackExchange.Redis.</Description>
+    <RepositoryUrl>https://github.com/TechTeaStudio/Auth</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/TechTeaStudio/Auth</PackageProjectUrl>
+    <PackageIcon>icon.png</PackageIcon>
+    <Copyright>Copyright © Tech Tea Studio 2026</Copyright>
+    <PackageTags>auth;refresh-token;lockout;redis;distributed;TechTeaStudio</PackageTags>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\TechTeaStudio.Auth\TechTeaStudio.Auth\TechTeaStudio.Auth.csproj" />
+    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\TechTeaStudio.Auth\icon.png" Pack="true" PackagePath="\" />
+    <None Include="..\..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\..\CHANGELOG.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\..\LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>
