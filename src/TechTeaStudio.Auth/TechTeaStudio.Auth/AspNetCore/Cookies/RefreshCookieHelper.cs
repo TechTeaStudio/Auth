@@ -8,8 +8,12 @@ namespace TechTeaStudio.Auth.AspNetCore.Cookies;
 /// </summary>
 public static class RefreshCookieHelper
 {
-    /// <summary>Writes <paramref name="rawRefreshToken"/> as <see cref="TechTeaStudioCookieDefaults.RefreshCookieName"/>.</summary>
-    public static void Write(HttpResponse response, string rawRefreshToken, DateTimeOffset expiresAt, string path = "/")
+    /// <summary>
+    /// Writes <paramref name="rawRefreshToken"/> as the refresh cookie.
+    /// <paramref name="requireHttps"/> defaults to <c>true</c> — set to <c>false</c>
+    /// only when explicitly serving over plain HTTP (dev, homelab, internal apps).
+    /// </summary>
+    public static void Write(HttpResponse response, string rawRefreshToken, DateTimeOffset expiresAt, string path = "/", bool requireHttps = true)
     {
         if (response is null) throw new ArgumentNullException(nameof(response));
         if (string.IsNullOrEmpty(rawRefreshToken)) throw new ArgumentException("token required", nameof(rawRefreshToken));
@@ -17,7 +21,7 @@ public static class RefreshCookieHelper
         response.Cookies.Append(TechTeaStudioCookieDefaults.RefreshCookieName, rawRefreshToken, new CookieOptions
         {
             HttpOnly = true,
-            Secure = true,
+            Secure = requireHttps,
             SameSite = SameSiteMode.Strict,
             Path = path,
             Expires = expiresAt,
@@ -30,13 +34,13 @@ public static class RefreshCookieHelper
         request?.Cookies.TryGetValue(TechTeaStudioCookieDefaults.RefreshCookieName, out var v) == true ? v : null;
 
     /// <summary>Removes the refresh cookie.</summary>
-    public static void Clear(HttpResponse response, string path = "/")
+    public static void Clear(HttpResponse response, string path = "/", bool requireHttps = true)
     {
         if (response is null) throw new ArgumentNullException(nameof(response));
         response.Cookies.Delete(TechTeaStudioCookieDefaults.RefreshCookieName, new CookieOptions
         {
             HttpOnly = true,
-            Secure = true,
+            Secure = requireHttps,
             SameSite = SameSiteMode.Strict,
             Path = path,
         });

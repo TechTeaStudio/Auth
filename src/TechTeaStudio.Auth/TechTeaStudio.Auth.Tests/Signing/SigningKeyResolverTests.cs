@@ -11,7 +11,7 @@ public class SigningKeyResolverTests
     [Fact]
     public void Legacy_SecretKey_path_synthesizes_default_descriptor()
     {
-        var o = new AuthOptions { SecretKey = new string('a', 32), Issuer = "i", Audience = "a" };
+        var o = new AuthOptions { Jwt = { SecretKey = new string('a', 32), Issuer = "i", Audience = "a" } };
         var active = SigningKeyResolver.ResolveActive(o);
         active.Kid.Should().Be(SigningKeyResolver.LegacyDefaultKid);
         active.Algorithm.Should().Be(SigningAlgorithm.HS256);
@@ -29,9 +29,8 @@ public class SigningKeyResolverTests
     public void ResolveValidating_includes_keys_within_retention()
     {
         var o = NewWithTwoHmacKeys("old", "new", activeKid: "new");
-        // Make "old" older than retention.
-        o.Signing.Keys[0].CreatedAt = DateTimeOffset.UtcNow - TimeSpan.FromDays(30);
-        o.Signing.KeyRetention = TimeSpan.FromDays(7);
+        o.Jwt.Signing.Keys[0].CreatedAt = DateTimeOffset.UtcNow - TimeSpan.FromDays(30);
+        o.Jwt.Signing.KeyRetention = TimeSpan.FromDays(7);
 
         var kids = SigningKeyResolver.ResolveValidating(o).Select(k => k.Kid).ToHashSet();
         kids.Should().Contain("new");
@@ -42,7 +41,7 @@ public class SigningKeyResolverTests
     public void ResolveValidating_keeps_active_even_when_old()
     {
         var o = NewWithTwoHmacKeys("active-but-old", "ignored", activeKid: "active-but-old");
-        o.Signing.Keys[0].CreatedAt = DateTimeOffset.UtcNow - TimeSpan.FromDays(60);
+        o.Jwt.Signing.Keys[0].CreatedAt = DateTimeOffset.UtcNow - TimeSpan.FromDays(60);
 
         SigningKeyResolver.ResolveValidating(o).Should().Contain(k => k.Kid == "active-but-old");
     }
@@ -96,15 +95,18 @@ public class SigningKeyResolverTests
 
     private static AuthOptions NewWithTwoHmacKeys(string kid1, string kid2, string activeKid) => new()
     {
-        Issuer = "i",
-        Audience = "a",
-        Signing = new SigningOptions
+        Jwt =
         {
-            ActiveKid = activeKid,
-            Keys =
+            Issuer = "i",
+            Audience = "a",
+            Signing =
             {
-                new SigningKeyDescriptor { Kid = kid1, Algorithm = SigningAlgorithm.HS256, SymmetricKey = new string('1', 32) },
-                new SigningKeyDescriptor { Kid = kid2, Algorithm = SigningAlgorithm.HS256, SymmetricKey = new string('2', 32) },
+                ActiveKid = activeKid,
+                Keys =
+                {
+                    new SigningKeyDescriptor { Kid = kid1, Algorithm = SigningAlgorithm.HS256, SymmetricKey = new string('1', 32) },
+                    new SigningKeyDescriptor { Kid = kid2, Algorithm = SigningAlgorithm.HS256, SymmetricKey = new string('2', 32) },
+                },
             },
         },
     };

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using TechTeaStudio.Auth.Revocation;
+using TechTeaStudio.Auth.Signing;
 
 namespace TechTeaStudio.Auth.Tokens;
 
@@ -93,7 +94,7 @@ public sealed class SignedTokenService
 
     private byte[] Sign(string payloadJson)
     {
-        var key = Encoding.UTF8.GetBytes(_options.SecretKey);
+        var key = SigningKeyResolver.ResolveServerHmacKey(_options);
 #if NET6_0_OR_GREATER
         return HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(payloadJson));
 #else

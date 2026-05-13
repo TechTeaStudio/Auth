@@ -11,11 +11,8 @@ public class InMemoryLoginAttemptTrackerTests
     {
         var o = new AuthOptions
         {
-            SecretKey = new string('x', 32),
-            Issuer = "i",
-            Audience = "a",
-            MaxFailedLoginAttempts = maxAttempts,
-            LockoutDuration = lockout ?? TimeSpan.FromMinutes(15),
+            Jwt = { SecretKey = new string('x', 32), Issuer = "i", Audience = "a" },
+            Lockout = { MaxFailedAttempts = maxAttempts, Duration = lockout ?? TimeSpan.FromMinutes(15) },
         };
         return new InMemoryLoginAttemptTracker(Options.Create(o));
     }

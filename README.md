@@ -78,16 +78,30 @@ app.UseAuthorization();
 // appsettings.json
 {
   "Auth": {
-    "SecretKey": "<32-byte-secret-or-longer>",
-    "Issuer": "https://api.example.com",
-    "Audience": "example-clients",
-    "TokenLifetime": "00:30:00",
-    "RefreshTokenLifetime": "7.00:00:00"
+    "Jwt": {
+      "SecretKey": "<32-byte-secret-or-longer>",
+      "Issuer": "https://api.example.com",
+      "Audience": "example-clients",
+      "TokenLifetime": "00:30:00"
+    },
+    "RefreshTokens": { "Lifetime": "7.00:00:00" },
+    "Lockout": { "MaxFailedAttempts": 5, "Duration": "00:15:00" }
   }
 }
 ```
 
-`AddTechTeaStudioAuth` registers `ITokenProvider`, `ITokenReader`, `IPasswordHasher`, `IRefreshTokenStore` (in-memory by default), `RefreshTokenService`, `ILoginAttemptTracker`, `IRevokedTokenStore`, `IAuthAuditLogger` (null sink), the JWT bearer scheme, ASP.NET Core authorization, the `RefreshTokenCleanupService` + `RevokedTokenCleanupService` background workers, and startup validation of `AuthOptions`.
+`AddTechTeaStudioAuth` registers `ITokenProvider`, `ITokenReader`, `IPasswordHasher`, `IRefreshTokenStore` (in-memory by default), `RefreshTokenService`, `IRefreshClaimsResolver`, `ILoginAttemptTracker`, `IRevokedTokenStore`, `IAuthAuditLogger` (null sink), the JWT bearer scheme, ASP.NET Core authorization, the `RefreshTokenCleanupService` + `RevokedTokenCleanupService` background workers, and startup validation of `AuthOptions`.
+
+All store / tracker / logger registrations use `TryAdd*`, so prior registrations win. The clean way to swap a default is the **fluent builder** returned by `AddTechTeaStudioAuth(...)`:
+
+```csharp
+builder.Services.AddTechTeaStudioAuth(builder.Configuration)
+    .UseRefreshTokenStore<EfCoreRefreshTokenStore<MyDbContext>>()
+    .UseLoginAttemptTracker<RedisLoginAttemptTracker>()
+    .UseAuthAuditLogger<MyDbAuthAuditLogger>()
+    .UseClaimsProfile<MyAppClaimsProfile>()
+    .UseRefreshClaimsResolver<MyClaimsResolver>();
+```
 
 ### Issuing a token pair
 
@@ -107,11 +121,14 @@ public sealed class LoginEndpoint
         if (user is null || !_passwords.Verify(user.PasswordHash, req.Password))
             return Results.Unauthorized();
 
-        var pair = await _refresh.IssueAsync(user.Id, ClaimsProfiles.Hyperion.BuildClaims(
-            new ClaimsBuilderInput
-            {
-                UserId = user.Id, Username = user.Username, Email = user.Email, Roles = user.Roles,
-            }), ct);
+        var claims = new[]
+        {
+            new Claim(AuthClaims.Username, user.Username),
+            new Claim(AuthClaims.Email, user.Email),
+        }
+        .Concat(user.Roles.Select(r => new Claim(AuthClaims.Role, r)));
+
+        var pair = await _refresh.IssueAsync(user.Id, claims, ct);
 
         return Results.Ok(new { pair.AccessToken, pair.RefreshToken, pair.RefreshTokenExpiresAt });
     }
@@ -121,13 +138,16 @@ public sealed class LoginEndpoint
 ### Rotating refresh tokens
 
 ```csharp
-var pair = await _refresh.RotateAsync(req.RefreshToken,
-    ClaimsProfiles.Hyperion.BuildClaims(new ClaimsBuilderInput { UserId = req.UserId }), ct);
+// Caller knows the claims to embed:
+var pair = await _refresh.RotateAsync(req.RefreshToken, claims, ct);
+
+// Or register an IRefreshClaimsResolver once and use the no-claims overload:
+var pair = await _refresh.RotateAsync(req.RefreshToken, ct);
 
 return pair is null ? Results.Unauthorized() : Results.Ok(pair);
 ```
 
-Refresh tokens are single-use. A successful rotation revokes the presented token and emits a fresh one. Presenting an already-revoked token revokes the **whole rotation chain** when `AuthOptions.RevokeChainOnRefreshReuse` is on (default).
+Refresh tokens are single-use. A successful rotation revokes the presented token and emits a fresh one. Presenting an already-revoked token revokes the **whole rotation chain** when `AuthOptions.RefreshTokens.RevokeChainOnReuse` is on (default).
 
 ### Hashing passwords
 
@@ -179,36 +199,61 @@ Reads `X-Api-Key` by default; also accepts `Authorization: ApiKey <key>` when th
 
 ## Multi-app claim profiles
 
-Different apps publish different claim shapes; `TechTeaStudio.Auth` lets each one work without forking the library.
+Different apps publish different claim shapes. The library defines the `IClaimsProfile` abstraction; each app implements its own profile and registers it via DI:
 
 ```csharp
-// Hyperion (sub / unique_name / email / role + legacy nameid)
-var claims = ClaimsProfiles.Hyperion.BuildClaims(new ClaimsBuilderInput
+public sealed class MyAppClaimsProfile : IClaimsProfile
 {
-    UserId = user.Id, Username = user.Username, Email = user.Email, Roles = user.Roles,
-});
+    public string Name => "MyApp";
+    public IEnumerable<Claim> BuildClaims(ClaimsBuilderInput input)
+    {
+        if (!string.IsNullOrEmpty(input.UserId)) yield return new Claim(AuthClaims.Subject, input.UserId);
+        if (!string.IsNullOrEmpty(input.Email))  yield return new Claim(AuthClaims.Email, input.Email);
+        if (input.Roles is not null)
+            foreach (var r in input.Roles) yield return new Claim(AuthClaims.Role, r);
+    }
+}
 
-// Pello (email / unique_name)
-var claims = ClaimsProfiles.Pello.BuildClaims(new ClaimsBuilderInput
-{
-    Email = user.Email, Username = user.DisplayName,
-});
-
-// Custom — implement IClaimsProfile.
+builder.Services.AddTechTeaStudioAuth(builder.Configuration)
+    .UseClaimsProfile<MyAppClaimsProfile>();
 ```
+
+The library deliberately does **not** ship product-specific profiles — every consuming app owns its claim shape and the library stays generic.
+
+## ⚠️ In-memory defaults are NOT for multi-instance production
+
+The defaults registered by `AddTechTeaStudioAuth()` are designed for fast dev / single-instance scenarios:
+
+- **`InMemoryRefreshTokenStore`** — lost on restart.
+- **`InMemoryLoginAttemptTracker`** — brute-forcer hitting different instances behind a load balancer bypasses lockout entirely.
+- **`InMemoryRevokedTokenStore`** — JTI revoked on instance A is unknown to instance B; a stolen access token keeps working everywhere else until natural expiry.
+
+**For any multi-instance production deployment, replace via the builder:**
+
+```csharp
+builder.Services.AddTechTeaStudioAuth(builder.Configuration)
+    .UseRefreshTokenStore<EfCoreRefreshTokenStore<MyDbContext>>()   // TechTeaStudio.Auth.EFCore
+    .UseLoginAttemptTracker<RedisLoginAttemptTracker>();             // TechTeaStudio.Auth.Redis
+```
+
+> ⚠️ **`TechTeaStudio.Auth.Redis` is in early-stage (v0.5)** — passes the contract test kit, but `RevokeAsync(Guid)` walks every key (O(N)) and there are no production benchmarks yet. Suitable for a starting point; will be hardened with a reverse-index in v0.6+.
 
 ## Security defaults
 
 | Concern | Default | Knob |
 |---|---|---|
 | Password hashing | PBKDF2-SHA256, 600 000 iterations, 16-byte salt | (algorithm version is fixed; iteration count is fixed in 0.x) |
-| Access token lifetime | 30 minutes | `AuthOptions.TokenLifetime` |
-| Refresh token lifetime | 7 days | `AuthOptions.RefreshTokenLifetime` |
-| Refresh token reuse | Single-use, rotated; replay revokes the chain | `AuthOptions.RevokeChainOnRefreshReuse` |
-| Signing algorithm | HS256 | (RS256/ES256 on roadmap) |
-| Clock skew | 5 minutes | `AuthOptions.ClockSkew` |
-| Account lockout | 5 failed attempts → 15-minute lockout | `AuthOptions.MaxFailedLoginAttempts`, `AuthOptions.LockoutDuration` |
-| Refresh-token cleanup | every 1 hour | `AuthOptions.RefreshTokenCleanupInterval` |
+| Access token lifetime | 30 minutes | `AuthOptions.Jwt.TokenLifetime` |
+| Refresh token lifetime | 7 days | `AuthOptions.RefreshTokens.Lifetime` |
+| Refresh token reuse | Single-use, rotated; replay revokes the chain | `AuthOptions.RefreshTokens.RevokeChainOnReuse` |
+| Signing algorithm | HS256 (RS256, ES256 also supported via `Jwt.Signing.Keys`) | `AuthOptions.Jwt.Signing` |
+| Clock skew | 5 minutes | `AuthOptions.Jwt.ClockSkew` |
+| Account lockout | 5 failed attempts → 15-minute lockout | `AuthOptions.Lockout.MaxFailedAttempts`, `AuthOptions.Lockout.Duration` |
+| Refresh-token cleanup | every 1 hour | `AuthOptions.RefreshTokens.CleanupInterval` |
+
+### HTTP-only / domain-less deployments
+
+The cookie scheme defaults to `CookieSecurePolicy.SameAsRequest`, so plain `http://localhost` and on-prem deployments without TLS work out of the box. For production over HTTPS, harden by passing `o.Cookie.SecurePolicy = CookieSecurePolicy.Always` into `AddTechTeaStudioCookieAuth(...)`. HSTS is only emitted by `SecurityHeadersMiddleware` when the inbound request is HTTPS — never on HTTP.
 
 The library refuses to start with a missing or short signing key (< 32 UTF-8 bytes).
 

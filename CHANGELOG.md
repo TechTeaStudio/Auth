@@ -3,6 +3,55 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-05-13
+
+Breaking-change cleanup release. Driven by a critical self-review of v0.4.0 — fixes a real DI bug, a silent SignedTokenService failure mode, a SQL Server-only EFCore bug, a Swashbuckle Minimal-API miss, plus architectural cleanup (product-specific code out of the library).
+
+### Breaking changes
+
+- **`AuthOptions` is now nested.** Top-level flat properties moved into sections:
+  - `Auth:SecretKey` → `Auth:Jwt:SecretKey`
+  - `Auth:Issuer` → `Auth:Jwt:Issuer`
+  - `Auth:Audience` → `Auth:Jwt:Audience`
+  - `Auth:TokenLifetime` → `Auth:Jwt:TokenLifetime`
+  - `Auth:ClockSkew` → `Auth:Jwt:ClockSkew`
+  - `Auth:Signing` → `Auth:Jwt:Signing`
+  - `Auth:RefreshTokenLifetime` → `Auth:RefreshTokens:Lifetime`
+  - `Auth:RevokeChainOnRefreshReuse` → `Auth:RefreshTokens:RevokeChainOnReuse`
+  - `Auth:RefreshTokenCleanupInterval` → `Auth:RefreshTokens:CleanupInterval`
+  - `Auth:MaxFailedLoginAttempts` → `Auth:Lockout:MaxFailedAttempts`
+  - `Auth:LockoutDuration` → `Auth:Lockout:Duration`
+- **`AddTechTeaStudioAuth(...)` returns `IAuthBuilder`** (was `IServiceCollection`). All default registrations switched to `TryAdd*` so user-provided implementations win. Swap defaults via the fluent builder: `.UseRefreshTokenStore<T>()`, `.UseLoginAttemptTracker<T>()`, `.UseRevokedTokenStore<T>()`, `.UseAuthAuditLogger<T>()`, `.UseClaimsProfile<T>()`, `.UseRefreshClaimsResolver<T>()`. Same builder is extended from sibling packages (EFCore / Redis).
+- **Removed `HyperionClaimsProfile`, `PelloClaimsProfile`, `ClaimsProfiles`.** Implement your own `IClaimsProfile` in each app — the library only defines the abstraction. Migration guides show how.
+- **Removed `AuthClaims.LegacyNameId` + `JwtTokenReader.TryRead` fallback to `nameid`.** Hyperion-specific. If you consume legacy tokens, wrap `JwtTokenReader` locally.
+- **Removed `AuthRateLimit*` extensions.** Wire `Microsoft.AspNetCore.RateLimiting` yourself — every app's "good limits" differ, and the standard middleware is fine.
+- **Removed `X-XSS-Protection` from `SecurityHeadersMiddleware`.** Deprecated header; can introduce XSS in legacy browsers (MDN, OWASP).
+
+### Fixed
+
+- **`SignedTokenService` HMAC key resolution.** Previously used `AuthOptions.SecretKey` directly, which broke silently after migrating to `Signing.Keys` (RS256/ES256). Now resolves via `SigningKeyResolver.ResolveServerHmacKey`.
+- **`TechTeaStudio.Auth.EFCore` cross-provider concurrency.** Replaced `uint RowVersion` (Postgres-only) with `string ConcurrencyStamp` — works on SQL Server / Postgres / SQLite / MySQL.
+- **`TechTeaStudio.Auth.Swashbuckle` Minimal-API support.** `AttachBearerToAuthorizedOperationsFilter` now reads `EndpointMetadata` for `IAuthorizeData`, so `app.MapGet(...).RequireAuthorization()` endpoints get the lock icon.
+- **DI overrides actually work.** Default `IRefreshTokenStore`, `ILoginAttemptTracker`, etc. now register via `TryAddSingleton`. Previously a consumer's `AddScoped<IRefreshTokenStore, EfCoreRefreshTokenStore<...>>()` was silently overwritten.
+- **`AuthOptionsValidator` registered via `TryAddEnumerable`** so it coexists with the framework's DataAnnotations validator (was being skipped before).
+
+### Added
+
+- **`IRefreshClaimsResolver`** + `RefreshTokenService.RotateAsync(string, CancellationToken)` overload. Caller no longer needs to thread claims through refresh endpoints — register a resolver once and the service rebuilds them from the user id encoded in the refresh-token row.
+- **`SigningKeyResolver.BuildValidationParameters(AuthOptions)`** moved here from `JwtTokenProvider` (cleaner home). Plus `ResolveServerHmacKey` for non-JWT signed tokens.
+- **SHOUTY XML-doc warnings** on `InMemoryRefreshTokenStore`, `InMemoryLoginAttemptTracker`, `InMemoryRevokedTokenStore` so the multi-instance pitfall is unmissable in IntelliSense.
+- **JWKS `Cache-Control: public, max-age=600`** header.
+- **Cookie scheme `SecurePolicy = SameAsRequest`** by default — works on `http://localhost` and HTTP-only homelab / on-prem deployments. Production over HTTPS should override to `Always`.
+- **`RefreshCookieHelper.Write/Clear`** now accept a `requireHttps` flag.
+- **`TokenHasher.NewRawToken()`** promoted to `public` so consumers can mint refresh-token strings without going through `RefreshTokenService`.
+- **`MaxChainWalkDepth` constant** + comment in `RefreshTokenService` (replaces the magic `1000`).
+
+### Sibling packages (also at 0.5.0)
+
+- `TechTeaStudio.Auth.Swashbuckle` — Minimal-API support; no longer references the base `TechTeaStudio.Auth` project (uses local string constant + framework reference for ASP.NET Core types).
+- `TechTeaStudio.Auth.EFCore` — `ConcurrencyStamp` instead of `RowVersion`.
+- `TechTeaStudio.Auth.Redis` — unchanged code; documented as early-stage (`RevokeAsync(Guid)` is O(N); reverse-index pass deferred to v0.6).
+
 ## [0.4.0] — 2026-05-13
 
 Signing-key rotation with `kid`, multi-key validation window, optional asymmetric signing (RS256 / ES256), authorization policy helpers, cookie auth scheme, rate-limit integration, and a JWKS endpoint.

@@ -24,9 +24,12 @@ public class JwtBenchmarks
     {
         var opts = Options.Create(new AuthOptions
         {
-            SecretKey = "benchmark-signing-key-32-chars-!",
-            Issuer = "tts.bench",
-            Audience = "tts.bench.clients",
+            Jwt =
+            {
+                SecretKey = "benchmark-signing-key-32-chars-!",
+                Issuer = "tts.bench",
+                Audience = "tts.bench.clients",
+            },
         });
         _provider = JwtTokenProvider.ForOptions(opts);
         _token = _provider.CreateToken("u", _claims, TimeSpan.FromMinutes(5));

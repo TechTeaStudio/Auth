@@ -14,8 +14,11 @@ public sealed class SecurityHeadersMiddleware : IMiddleware
         var h = context.Response.Headers;
         h["X-Content-Type-Options"] = "nosniff";
         h["X-Frame-Options"] = "DENY";
-        h["X-XSS-Protection"] = "1; mode=block";
         h["Referrer-Policy"] = "strict-origin-when-cross-origin";
+        // Note: X-XSS-Protection is intentionally omitted. The header is deprecated
+        // (MDN: "Deprecated. May introduce XSS vulnerabilities in otherwise-safe
+        // websites"). Modern browsers ignore it; in legacy IE/Safari versions its
+        // filter has been the source of reflected-XSS bugs. Lean on CSP instead.
         if (context.Request.IsHttps)
             h["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
 

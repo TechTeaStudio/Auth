@@ -19,51 +19,110 @@ public static class SigningKeyResolver
     public static SigningKeyDescriptor ResolveActive(AuthOptions options)
     {
         if (options is null) throw new ArgumentNullException(nameof(options));
+        return ResolveActive(options.Jwt);
+    }
+
+    /// <summary>Returns the descriptor chosen for signing new tokens.</summary>
+    public static SigningKeyDescriptor ResolveActive(JwtOptions jwt)
+    {
+        if (jwt is null) throw new ArgumentNullException(nameof(jwt));
 
         // Legacy path: no Signing.Keys configured, synthesize from SecretKey.
-        if (options.Signing.Keys.Count == 0)
+        if (jwt.Signing.Keys.Count == 0)
             return new SigningKeyDescriptor
             {
                 Kid = LegacyDefaultKid,
                 Algorithm = SigningAlgorithm.HS256,
-                SymmetricKey = options.SecretKey,
+                SymmetricKey = jwt.SecretKey,
                 CreatedAt = DateTimeOffset.UtcNow,
             };
 
-        var activeKid = options.Signing.ActiveKid;
+        var activeKid = jwt.Signing.ActiveKid;
         if (!string.IsNullOrEmpty(activeKid))
         {
-            var match = options.Signing.Keys.FirstOrDefault(k =>
+            var match = jwt.Signing.Keys.FirstOrDefault(k =>
                 string.Equals(k.Kid, activeKid, StringComparison.Ordinal));
             if (match is not null) return match;
-            throw new InvalidOperationException($"Signing.ActiveKid '{activeKid}' is not present in Signing.Keys.");
+            throw new InvalidOperationException($"Jwt.Signing.ActiveKid '{activeKid}' is not present in Jwt.Signing.Keys.");
         }
-        return options.Signing.Keys[0];
+        return jwt.Signing.Keys[0];
     }
 
     /// <summary>Returns every descriptor whose <see cref="SigningKeyDescriptor.CreatedAt"/> is within the retention window.</summary>
     public static IEnumerable<SigningKeyDescriptor> ResolveValidating(AuthOptions options)
     {
         if (options is null) throw new ArgumentNullException(nameof(options));
+        return ResolveValidating(options.Jwt);
+    }
 
-        if (options.Signing.Keys.Count == 0)
+    /// <summary>Returns every descriptor whose <see cref="SigningKeyDescriptor.CreatedAt"/> is within the retention window.</summary>
+    public static IEnumerable<SigningKeyDescriptor> ResolveValidating(JwtOptions jwt)
+    {
+        if (jwt is null) throw new ArgumentNullException(nameof(jwt));
+
+        if (jwt.Signing.Keys.Count == 0)
         {
-            yield return ResolveActive(options);
+            yield return ResolveActive(jwt);
             yield break;
         }
 
-        var active = ResolveActive(options);
+        var active = ResolveActive(jwt);
         yield return active;
 
-        var retention = options.Signing.KeyRetention;
+        var retention = jwt.Signing.KeyRetention;
         if (retention <= TimeSpan.Zero) yield break;
 
         var cutoff = DateTimeOffset.UtcNow - retention;
-        foreach (var k in options.Signing.Keys)
+        foreach (var k in jwt.Signing.Keys)
         {
             if (ReferenceEquals(k, active)) continue;
             if (k.CreatedAt >= cutoff) yield return k;
         }
+    }
+
+    /// <summary>
+    /// Builds <see cref="TokenValidationParameters"/> for the current options
+    /// snapshot — shared by <c>JwtTokenProvider</c> and the bearer middleware.
+    /// </summary>
+    public static TokenValidationParameters BuildValidationParameters(AuthOptions options)
+    {
+        if (options is null) throw new ArgumentNullException(nameof(options));
+        var keys = ResolveValidating(options.Jwt).Select(BuildValidationKey).ToList();
+
+        return new TokenValidationParameters
+        {
+            ValidateIssuer = !string.IsNullOrEmpty(options.Jwt.Issuer),
+            ValidIssuer = options.Jwt.Issuer,
+            ValidateAudience = !string.IsNullOrEmpty(options.Jwt.Audience),
+            ValidAudience = options.Jwt.Audience,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKeys = keys,
+            ClockSkew = options.Jwt.ClockSkew,
+            NameClaimType = Abstractions.AuthClaims.Username,
+            RoleClaimType = Abstractions.AuthClaims.Role,
+        };
+    }
+
+    /// <summary>
+    /// Returns the HMAC-SHA256 key used for server-only signed tokens (email
+    /// confirmation, password reset). Prefers an HS256 entry from
+    /// <c>Jwt.Signing.Keys</c>, then the legacy <c>Jwt.SecretKey</c>. Throws if
+    /// neither is configured.
+    /// </summary>
+    public static byte[] ResolveServerHmacKey(AuthOptions options)
+    {
+        if (options is null) throw new ArgumentNullException(nameof(options));
+
+        var hs = options.Jwt.Signing.Keys
+            .FirstOrDefault(k => k.Algorithm == SigningAlgorithm.HS256 && !string.IsNullOrEmpty(k.SymmetricKey));
+        if (hs is not null) return Encoding.UTF8.GetBytes(hs.SymmetricKey!);
+
+        if (!string.IsNullOrEmpty(options.Jwt.SecretKey))
+            return Encoding.UTF8.GetBytes(options.Jwt.SecretKey);
+
+        throw new InvalidOperationException(
+            "Server-signed tokens require either Auth:Jwt:SecretKey or an HS256 entry in Auth:Jwt:Signing:Keys.");
     }
 
     /// <summary>Builds <see cref="SigningCredentials"/> for signing new tokens.</summary>

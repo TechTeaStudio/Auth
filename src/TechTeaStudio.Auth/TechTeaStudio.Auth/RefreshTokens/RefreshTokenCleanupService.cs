@@ -8,7 +8,7 @@ namespace TechTeaStudio.Auth.RefreshTokens;
 /// <summary>
 /// Background service that periodically removes expired refresh tokens from the
 /// configured <see cref="IRefreshTokenStore"/>. Period is
-/// <see cref="AuthOptions.RefreshTokenCleanupInterval"/> (default 1h).
+/// <see cref="RefreshTokenOptions.CleanupInterval"/> (default 1h).
 /// Exceptions are logged and swallowed — the service never crashes the host.
 /// </summary>
 public sealed class RefreshTokenCleanupService : BackgroundService
@@ -48,7 +48,7 @@ public sealed class RefreshTokenCleanupService : BackgroundService
 
             try
             {
-                await Task.Delay(_options.RefreshTokenCleanupInterval, stoppingToken).ConfigureAwait(false);
+                await Task.Delay(_options.RefreshTokens.CleanupInterval, stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

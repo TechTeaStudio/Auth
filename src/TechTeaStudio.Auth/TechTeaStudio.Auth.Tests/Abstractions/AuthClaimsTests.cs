@@ -27,14 +27,6 @@ public class AuthClaimsTests
         AuthClaims.Role.Should().Be("role");
     }
 
-#pragma warning disable CS0618
-    [Fact]
-    public void LegacyNameId_kept_for_backward_compat()
-    {
-        AuthClaims.LegacyNameId.Should().Be("nameid");
-    }
-#pragma warning restore CS0618
-
     [Fact]
     public void Class_is_static()
     {

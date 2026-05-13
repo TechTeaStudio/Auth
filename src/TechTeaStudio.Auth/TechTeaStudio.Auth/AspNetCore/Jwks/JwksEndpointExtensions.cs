@@ -42,6 +42,10 @@ public static class JwksEndpointExtensions
                 .ToArray();
 
             ctx.Response.ContentType = "application/jwk-set+json; charset=utf-8";
+            // JWKS is hit by every third-party validator on every cache-miss. A short
+            // cache window saves the RSA/EC PEM import on the hot path and lets CDNs
+            // / intermediaries help. 10 minutes still picks up a key rotation quickly.
+            ctx.Response.Headers["Cache-Control"] = "public, max-age=600";
             return ctx.Response.WriteAsync(JsonSerializer.Serialize(new { keys = jwks }, Json));
         });
     }

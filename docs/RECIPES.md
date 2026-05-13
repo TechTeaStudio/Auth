@@ -29,11 +29,18 @@ public sealed class LoginEndpoint
         }
 
         await _lockout.RecordSuccessAsync(req.Email, ct);
-        var pair = await _refresh.IssueAsync(user.Id, ClaimsProfiles.Hyperion.BuildClaims(new ClaimsBuilderInput
-        {
-            UserId = user.Id, Username = user.Username, Email = user.Email, Roles = user.Roles,
-        }), ct);
 
+        // Build whatever claims your downstream services expect.
+        // For larger apps, factor this into an IClaimsProfile implementation
+        // and register it via builder.UseClaimsProfile<MyAppClaimsProfile>().
+        var claims = new[]
+        {
+            new Claim(AuthClaims.Username, user.Username),
+            new Claim(AuthClaims.Email, user.Email),
+        }
+        .Concat(user.Roles.Select(r => new Claim(AuthClaims.Role, r)));
+
+        var pair = await _refresh.IssueAsync(user.Id, claims, ct);
         return Results.Ok(new { pair.AccessToken, pair.RefreshToken, pair.RefreshTokenExpiresAt });
     }
 }
@@ -42,11 +49,20 @@ public sealed class LoginEndpoint
 ## 2. Refresh the token pair
 
 ```csharp
+// Option A — simplest: caller passes the claims to re-embed.
 public async Task<IResult> Handle(RefreshRequest req, CancellationToken ct)
 {
     var pair = await _refresh.RotateAsync(req.RefreshToken,
-        ClaimsProfiles.Hyperion.BuildClaims(new ClaimsBuilderInput { UserId = req.UserId }), ct);
+        new[] { new Claim(AuthClaims.Email, req.Email) }, ct);
+    return pair is null ? Results.Unauthorized() : Results.Ok(pair);
+}
 
+// Option B — register an IRefreshClaimsResolver so the service rebuilds
+// claims itself from the user id encoded in the refresh-token row.
+// services.AddTechTeaStudioAuth(cfg).UseRefreshClaimsResolver<MyClaimsResolver>();
+public async Task<IResult> HandleAuto(RefreshRequest req, CancellationToken ct)
+{
+    var pair = await _refresh.RotateAsync(req.RefreshToken, ct);
     return pair is null ? Results.Unauthorized() : Results.Ok(pair);
 }
 ```
@@ -152,12 +168,25 @@ app.MapGet("/internal/hooks", () => "ok")
 Replace the default `NullAuthAuditLogger` with your sink (SQL, Loki, Sentry, …):
 
 ```csharp
-services.AddSingleton<IAuthAuditLogger, MyDatabaseAuthAuditLogger>();
+services.AddTechTeaStudioAuth(builder.Configuration)
+    .UseAuthAuditLogger<MyDatabaseAuthAuditLogger>();
 ```
 
 Every `RefreshTokenService` operation (issue / rotate / replay) already emits a typed event. Wire your sink and it lights up.
 
-## 9. Surface security metrics
+## 9. Swap the default in-memory stores
+
+The defaults are designed for dev / single-instance. For multi-instance production, swap via the builder:
+
+```csharp
+builder.Services.AddTechTeaStudioAuth(builder.Configuration)
+    .UseRefreshTokenStore<EfCoreRefreshTokenStore<MyDbContext>>()   // TechTeaStudio.Auth.EFCore
+    .UseLoginAttemptTracker<RedisLoginAttemptTracker>();             // TechTeaStudio.Auth.Redis
+```
+
+Same builder method for `UseRevokedTokenStore<…>()`, `UseRefreshClaimsResolver<…>()`, `UseClaimsProfile<…>()`.
+
+## 10. Surface security metrics
 
 `AuthDiagnostics` exposes a `System.Diagnostics.Metrics.Meter` named `TechTeaStudio.Auth`. Any OpenTelemetry-based pipeline picks it up automatically:
 
@@ -170,22 +199,25 @@ builder.Services.AddOpenTelemetry()
 
 Counter names are Prometheus-friendly (`tts_auth_login_succeeded_total`, `tts_auth_refresh_reuse_total`, …) so they scrape cleanly into a single dashboard.
 
-## 10. Plug in a multi-app claim profile
+## 11. Custom claim profile for a multi-app deployment
 
-When two apps share the library but publish different claim shapes:
+When two apps share the library but publish different claim shapes, implement `IClaimsProfile` in each app and register it once via DI:
 
 ```csharp
-// Hyperion service:
-var hyperionClaims = ClaimsProfiles.Hyperion.BuildClaims(new ClaimsBuilderInput
+public sealed class MyAppClaimsProfile : IClaimsProfile
 {
-    UserId = user.Id, Username = user.Username, Email = user.Email, Roles = user.Roles,
-});
+    public string Name => "MyApp";
+    public IEnumerable<Claim> BuildClaims(ClaimsBuilderInput input)
+    {
+        if (!string.IsNullOrEmpty(input.UserId)) yield return new Claim(AuthClaims.Subject, input.UserId);
+        if (!string.IsNullOrEmpty(input.Email))  yield return new Claim(AuthClaims.Email, input.Email);
+        if (input.Roles is not null)
+            foreach (var r in input.Roles) yield return new Claim(AuthClaims.Role, r);
+    }
+}
 
-// Pello service:
-var pelloClaims = ClaimsProfiles.Pello.BuildClaims(new ClaimsBuilderInput
-{
-    Email = user.Email, Username = user.DisplayName,
-});
+builder.Services.AddTechTeaStudioAuth(builder.Configuration)
+    .UseClaimsProfile<MyAppClaimsProfile>();
 ```
 
-Both flow through the same `JwtTokenProvider` — only the published claim names differ.
+Then resolve `IClaimsProfile` wherever you build claims for `IssueAsync`. The library does not ship product-specific profiles — every app provides its own.

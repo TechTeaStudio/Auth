@@ -71,7 +71,7 @@ public class RefreshTokenServiceTests
     public async Task RotateAsync_replay_revokes_whole_chain_when_enabled()
     {
         var opts = TestAuthOptions.Create();
-        opts.RevokeChainOnRefreshReuse = true;
+        opts.RefreshTokens.RevokeChainOnReuse = true;
 
         var service = NewService(out var store, opts);
         var t1 = await service.IssueAsync("u", Array.Empty<Claim>());

@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
 using TechTeaStudio.Auth.Abstractions;
 using TechTeaStudio.Auth.AspNetCore.Authorization;
 using TechTeaStudio.Auth.Jwt;
@@ -18,10 +18,16 @@ namespace TechTeaStudio.Auth.AspNetCore;
 
 /// <summary>
 /// One-call DI bootstrap for TechTeaStudio.Auth. Registers the JWT provider,
-/// password hasher, refresh-token store (in-memory), the cleanup background
-/// service, JWT bearer authentication, authorization, and startup validation
-/// of <see cref="AuthOptions"/>.
+/// password hasher, in-memory refresh-token / lockout / revocation defaults,
+/// background cleanup services, JWT bearer authentication, authorization,
+/// and startup validation of <see cref="AuthOptions"/>.
 /// </summary>
+/// <remarks>
+/// All "store" / "tracker" / "logger" registrations are <c>TryAdd*</c> — if a
+/// consumer registered their own implementation before this call, the
+/// consumer's wins. The clean way to swap defaults is via the returned
+/// <see cref="IAuthBuilder"/>: <c>services.AddTechTeaStudioAuth(cfg).UseRefreshTokenStore&lt;…&gt;()</c>.
+/// </remarks>
 public static class AuthServiceCollectionExtensions
 {
     /// <summary>
@@ -29,7 +35,7 @@ public static class AuthServiceCollectionExtensions
     /// <paramref name="configuration"/> is read at the given <paramref name="sectionName"/>
     /// (default <c>"Auth"</c>) and may be tuned via <paramref name="configure"/>.
     /// </summary>
-    public static IServiceCollection AddTechTeaStudioAuth(
+    public static IAuthBuilder AddTechTeaStudioAuth(
         this IServiceCollection services,
         IConfiguration configuration,
         Action<AuthOptions>? configure = null,
@@ -38,13 +44,13 @@ public static class AuthServiceCollectionExtensions
         if (services is null) throw new ArgumentNullException(nameof(services));
         if (configuration is null) throw new ArgumentNullException(nameof(configuration));
 
-        var builder = services.AddOptions<AuthOptions>()
+        var optsBuilder = services.AddOptions<AuthOptions>()
             .Bind(configuration.GetSection(sectionName))
             .ValidateDataAnnotations();
         if (configure is not null)
-            builder.Configure(configure);
+            optsBuilder.Configure(configure);
 
-        services.AddSingleton<IValidateOptions<AuthOptions>, AuthOptionsValidator>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<AuthOptions>, AuthOptionsValidator>());
         services.AddHostedService<OptionsValidationHostedService<AuthOptions>>();
 
         services.TryAddCoreServices();
@@ -52,7 +58,7 @@ public static class AuthServiceCollectionExtensions
         services.AddAuthorization(o => o.AddTechTeaStudioPolicies());
         services.AddTechTeaStudioAuthorizationHandlers();
 
-        return services;
+        return new AuthBuilder(services);
     }
 
     /// <summary>
@@ -60,7 +66,7 @@ public static class AuthServiceCollectionExtensions
     /// stack without touching ASP.NET Core authentication. Useful for non-web
     /// hosts (background workers, console apps) that still need to issue tokens.
     /// </summary>
-    public static IServiceCollection AddTechTeaStudioAuthCore(
+    public static IAuthBuilder AddTechTeaStudioAuthCore(
         this IServiceCollection services,
         IConfiguration configuration,
         Action<AuthOptions>? configure = null,
@@ -69,36 +75,41 @@ public static class AuthServiceCollectionExtensions
         if (services is null) throw new ArgumentNullException(nameof(services));
         if (configuration is null) throw new ArgumentNullException(nameof(configuration));
 
-        var builder = services.AddOptions<AuthOptions>()
+        var optsBuilder = services.AddOptions<AuthOptions>()
             .Bind(configuration.GetSection(sectionName))
             .ValidateDataAnnotations();
         if (configure is not null)
-            builder.Configure(configure);
+            optsBuilder.Configure(configure);
 
-        services.AddSingleton<IValidateOptions<AuthOptions>, AuthOptionsValidator>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<AuthOptions>, AuthOptionsValidator>());
         services.AddHostedService<OptionsValidationHostedService<AuthOptions>>();
         services.TryAddCoreServices();
-        return services;
+        return new AuthBuilder(services);
     }
 
     private static void TryAddCoreServices(this IServiceCollection services)
     {
-        services.AddSingleton<ITokenProvider, JwtTokenProvider>();
-        services.AddSingleton<ITokenReader, JwtTokenReader>();
-        services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
-        services.AddSingleton<IRefreshTokenStore, InMemoryRefreshTokenStore>();
-        services.AddSingleton<RefreshTokenService>();
-        services.AddSingleton<ILoginAttemptTracker, InMemoryLoginAttemptTracker>();
-        services.AddSingleton<IRevokedTokenStore, InMemoryRevokedTokenStore>();
-        services.AddSingleton<IAuthAuditLogger>(NullAuthAuditLogger.Instance);
-        services.AddTransient<SecurityHeadersMiddleware>();
-        services.AddHostedService<RefreshTokenCleanupService>();
-        services.AddHostedService<RevokedTokenCleanupService>();
+        services.TryAddSingleton<ITokenProvider, JwtTokenProvider>();
+        services.TryAddSingleton<ITokenReader, JwtTokenReader>();
+        services.TryAddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+        services.TryAddSingleton<IRefreshTokenStore, InMemoryRefreshTokenStore>();
+        services.TryAddSingleton<RefreshTokenService>();
+        services.TryAddSingleton<IRefreshClaimsResolver>(NullRefreshClaimsResolver.Instance);
+        services.TryAddSingleton<ILoginAttemptTracker, InMemoryLoginAttemptTracker>();
+        services.TryAddSingleton<IRevokedTokenStore, InMemoryRevokedTokenStore>();
+        services.TryAddSingleton<IAuthAuditLogger>(NullAuthAuditLogger.Instance);
+        services.TryAddTransient<SecurityHeadersMiddleware>();
+
+        // Hosted services do not de-dupe via TryAdd; guard manually.
+        if (services.All(d => d.ImplementationType != typeof(RefreshTokenCleanupService)))
+            services.AddHostedService<RefreshTokenCleanupService>();
+        if (services.All(d => d.ImplementationType != typeof(RevokedTokenCleanupService)))
+            services.AddHostedService<RevokedTokenCleanupService>();
     }
 
     private static void AddTechTeaStudioJwtBearer(this IServiceCollection services)
     {
-        services.AddSingleton<IConfigureOptions<JwtBearerOptions>, ConfigureTechTeaStudioJwtBearer>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<JwtBearerOptions>, ConfigureTechTeaStudioJwtBearer>());
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer();
     }
@@ -107,7 +118,7 @@ public static class AuthServiceCollectionExtensions
 /// <summary>
 /// Hooks the JwtBearer default scheme up to <see cref="AuthOptions"/>. Uses
 /// <see cref="IOptionsMonitor{TOptions}"/> + an <c>IssuerSigningKeyResolver</c>
-/// so that a signing-key rotation is picked up without restarting the host.
+/// so a signing-key rotation is picked up without restarting the host.
 /// </summary>
 internal sealed class ConfigureTechTeaStudioJwtBearer : IConfigureNamedOptions<JwtBearerOptions>
 {
@@ -132,7 +143,7 @@ internal sealed class ConfigureTechTeaStudioJwtBearer : IConfigureNamedOptions<J
         options.SaveToken = true;
         options.MapInboundClaims = false;
 
-        options.TokenValidationParameters = JwtTokenProvider.BuildValidationParameters(snapshot);
+        options.TokenValidationParameters = SigningKeyResolver.BuildValidationParameters(snapshot);
         // Refresh the key list on every request so IOptionsMonitor updates propagate.
         var monitor = _auth;
         options.TokenValidationParameters.IssuerSigningKeyResolver = (_, _, _, _) =>

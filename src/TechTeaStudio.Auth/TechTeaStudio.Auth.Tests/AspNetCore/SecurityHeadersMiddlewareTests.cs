@@ -36,6 +36,8 @@ public class SecurityHeadersMiddlewareTests
         r.Headers.GetValues("X-Content-Type-Options").Should().Contain("nosniff");
         r.Headers.GetValues("X-Frame-Options").Should().Contain("DENY");
         r.Headers.GetValues("Referrer-Policy").Should().Contain("strict-origin-when-cross-origin");
-        r.Headers.GetValues("X-XSS-Protection").Should().Contain("1; mode=block");
+        // X-XSS-Protection is intentionally omitted in v0.5+ — header is deprecated
+        // and modern browsers ignore it. We rely on CSP / X-Frame-Options instead.
+        r.Headers.Contains("X-XSS-Protection").Should().BeFalse();
     }
 }

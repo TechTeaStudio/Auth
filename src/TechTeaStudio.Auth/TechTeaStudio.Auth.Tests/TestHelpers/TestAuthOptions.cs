@@ -9,9 +9,12 @@ internal static class TestAuthOptions
         string issuer = "tts-tests",
         string audience = "tts-tests-aud") => new()
         {
-            SecretKey = secret,
-            Issuer = issuer,
-            Audience = audience,
+            Jwt =
+            {
+                SecretKey = secret,
+                Issuer = issuer,
+                Audience = audience,
+            },
         };
 
     public static IOptionsMonitor<AuthOptions> Wrap(AuthOptions? opts = null) =>

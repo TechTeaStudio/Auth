@@ -55,11 +55,11 @@ return {0, count, remaining}
     {
         if (string.IsNullOrEmpty(userId)) throw new ArgumentException("userId is required.", nameof(userId));
 
-        var ttlSeconds = (int)Math.Max(1, _options.LockoutDuration.TotalSeconds);
+        var ttlSeconds = (int)Math.Max(1, _options.Lockout.Duration.TotalSeconds);
         var result = (RedisResult[]?)await _db.ScriptEvaluateAsync(
             Script,
             new RedisKey[] { CountKey(userId), LockKey(userId) },
-            new RedisValue[] { _options.MaxFailedLoginAttempts, ttlSeconds }).ConfigureAwait(false);
+            new RedisValue[] { _options.Lockout.MaxFailedAttempts, ttlSeconds }).ConfigureAwait(false);
 
         if (result is null || result.Length < 3) return new LoginAttemptResult(false, 0, null);
         var isLocked = ((int)result[0]!) == 1;

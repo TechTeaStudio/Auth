@@ -10,11 +10,16 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
+    <!-- Swashbuckle.AspNetCore pulls Microsoft.Extensions.ApiDescription.Server which
+         tries to invoke dotnet-getdocument at build time. That requires an executable
+         entry point; our class library has none. Disable the document generation. -->
+    <OpenApiGenerateDocuments>false</OpenApiGenerateDocuments>
+
     <PackageId>TechTeaStudio.Auth.Swashbuckle</PackageId>
-    <Version>0.4.0</Version>
+    <Version>0.5.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
-    <Description>Swashbuckle integration for TechTeaStudio.Auth — registers the JWT Bearer security scheme and (optionally) auto-attaches it to every [Authorize] endpoint in the OpenAPI document.</Description>
+    <Description>Swashbuckle integration for TechTeaStudio.Auth-issued JWT bearer tokens — registers the security scheme and auto-attaches it to controller actions and Minimal API endpoints that require authorization. Standalone, no runtime dependency on the base Auth package.</Description>
     <RepositoryUrl>https://github.com/TechTeaStudio/Auth</RepositoryUrl>
     <PackageProjectUrl>https://github.com/TechTeaStudio/Auth</PackageProjectUrl>
     <PackageIcon>icon.png</PackageIcon>
@@ -28,12 +33,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\TechTeaStudio.Auth\TechTeaStudio.Auth\TechTeaStudio.Auth.csproj" />
-    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="6.7.3" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.7.3" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\TechTeaStudio.Auth\icon.png" Pack="true" PackagePath="\" />
+    <None Include="icon.png" Pack="true" PackagePath="\" />
     <None Include="..\..\..\README.md" Pack="true" PackagePath="\" />
     <None Include="..\..\..\CHANGELOG.md" Pack="true" PackagePath="\" />
     <None Include="..\..\..\LICENSE" Pack="true" PackagePath="\" />

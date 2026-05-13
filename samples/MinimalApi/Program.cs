@@ -6,7 +6,6 @@ using TechTeaStudio.Auth.AspNetCore;
 using TechTeaStudio.Auth.AspNetCore.Authorization;
 using TechTeaStudio.Auth.EFCore;
 using TechTeaStudio.Auth.Lockout;
-using TechTeaStudio.Auth.Profiles;
 using TechTeaStudio.Auth.RefreshTokens;
 using TechTeaStudio.Auth.Swashbuckle;
 
@@ -15,9 +14,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Auth.SecretKey must come from configuration in real apps (user-secrets / env / vault).
 builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
 {
-    ["Auth:SecretKey"] = "dev-only-32-char-signing-key-!!!!",
-    ["Auth:Issuer"] = "tts.minimal",
-    ["Auth:Audience"] = "tts.minimal.clients",
+    ["Auth:Jwt:SecretKey"] = "dev-only-32-char-signing-key-!!!!",
+    ["Auth:Jwt:Issuer"] = "tts.minimal",
+    ["Auth:Jwt:Audience"] = "tts.minimal.clients",
 });
 
 builder.Services.AddTechTeaStudioAuth(builder.Configuration);
@@ -53,8 +52,13 @@ app.MapPost("/login", async (LoginRequest req, IPasswordHasher hasher, RefreshTo
         return Results.Unauthorized();
     }
     await lockout.RecordSuccessAsync(req.Email);
-    var claims = ClaimsProfiles.Hyperion.BuildClaims(new ClaimsBuilderInput
-        { UserId = user.Id.ToString(), Username = user.Email, Email = user.Email });
+    // Build whatever claim shape your downstream services expect.
+    // Bigger apps usually implement IClaimsProfile once and reuse it.
+    var claims = new[]
+    {
+        new Claim(AuthClaims.Username, user.Email),
+        new Claim(AuthClaims.Email, user.Email),
+    };
     return Results.Ok(await refresh.IssueAsync(user.Id.ToString(), claims));
 });
 

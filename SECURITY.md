@@ -32,8 +32,8 @@ Pre-1.0 releases are considered preview-quality. We will still fix security bugs
 | Concern | Mitigation |
 | --- | --- |
 | Weak signing keys | `AuthOptionsValidator` refuses to start when `SecretKey` is missing or under 32 bytes. |
-| Brute-force login | `ILoginAttemptTracker` + `InMemoryLoginAttemptTracker` lock accounts after `AuthOptions.MaxFailedLoginAttempts`. |
-| Stolen refresh token replay | Single-use refresh tokens; presenting a revoked token revokes the entire rotation chain when `AuthOptions.RevokeChainOnRefreshReuse` is on (default). |
+| Brute-force login | `ILoginAttemptTracker` + `InMemoryLoginAttemptTracker` lock accounts after `AuthOptions.Lockout.MaxFailedAttempts`. |
+| Stolen refresh token replay | Single-use refresh tokens; presenting a revoked token revokes the entire rotation chain when `AuthOptions.RefreshTokens.RevokeChainOnReuse` is on (default). |
 | Refresh tokens on disk | `TokenHasher.HashRefreshToken` — only SHA-256 hashes ever reach the `IRefreshTokenStore`. |
 | Password storage | PBKDF2-SHA256, 600 000 iterations, 16-byte salt, 32-byte digest; constant-time verify via `CryptographicOperations.FixedTimeEquals`. |
 | Stolen access token revocation | `IRevokedTokenStore` deny-list, consulted by the bearer pipeline on every request. |
@@ -41,21 +41,20 @@ Pre-1.0 releases are considered preview-quality. We will still fix security bugs
 | Response-layer hardening | `SecurityHeadersMiddleware` sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Strict-Transport-Security` on HTTPS. |
 | Audit trail | `IAuthAuditLogger` + strongly-typed events; metrics emitted on the `TechTeaStudio.Auth` `Meter`. |
 
-### Known limitations (tracked in `TechTeaStudio.Auth` roadmap)
+### Known limitations as of v0.5.0
 
-- No signing-key rotation with `kid` header yet — see TSA-55 / TSA-56.
-- No asymmetric signing (RS256 / ES256) yet — see TSA-57.
-- No distributed (Redis-backed) lockout or refresh store yet — see TSA-50 / TSA-52.
-- No ASP.NET Core rate-limiter helper — see TSA-69. Apps should add their own rate limit on the login endpoint until then.
+- **In-memory defaults** (`InMemoryRefreshTokenStore`, `InMemoryLoginAttemptTracker`, `InMemoryRevokedTokenStore`) are unsafe for multi-instance production. Swap via the builder — see the README's "In-memory defaults" section.
+- **Rate-limiting** is deliberately not shipped in the library — every consuming app's idea of "good limits" is different, and ASP.NET Core's `Microsoft.AspNetCore.RateLimiting` middleware handles it cleanly. See the recipes for a recommended wire-up.
+- **Redis package is early-stage.** `RedisRefreshTokenStore.RevokeAsync(Guid)` currently does an `O(N)` SCAN — fine for ≲ 10 k active tokens, but a reverse-index pass is on the way for v0.6.
 
 ## Hardening checklist for consumers
 
 When you wire `AddTechTeaStudioAuth(configuration)` into your app:
 
-1. **Store the signing key outside the repo.** Use a secret manager or environment variable for `Auth:SecretKey`. Never commit a non-throwaway key.
+1. **Store the signing key outside the repo.** Use a secret manager or environment variable for `Auth:Jwt:SecretKey`. Never commit a non-throwaway key.
 2. **Set explicit issuer and audience.** Empty values disable the corresponding checks.
-3. **Keep `TokenLifetime` short (≤ 15 minutes).** Rely on refresh-token rotation for session continuity.
-4. **Rate-limit the login endpoint** until TSA-69 ships (or in addition to it).
+3. **Keep `Auth:Jwt:TokenLifetime` short (≤ 15 minutes).** Rely on refresh-token rotation for session continuity.
+4. **Rate-limit the login endpoint** with `Microsoft.AspNetCore.RateLimiting` (net7+). Bind the policy by client IP after `UseForwardedHeaders` so a load balancer's address isn't the bucket key.
 5. **Enable the deny-list cleanup.** It is on by default via `RevokedTokenCleanupService`; do not turn it off unless you have measured the cost.
 6. **Log audit events.** Replace `NullAuthAuditLogger` with your sink (database, Loki, etc.).
 7. **Wire `app.UseSecurityHeaders()`** early in the pipeline.

@@ -4,9 +4,21 @@ using Microsoft.Extensions.Options;
 namespace TechTeaStudio.Auth.Lockout;
 
 /// <summary>
-/// Single-instance, in-memory <see cref="ILoginAttemptTracker"/>. Resets on process
-/// restart. For multi-instance deployments use a distributed implementation
-/// (Redis is on the roadmap).
+/// <para>
+/// ⚠️ <b>NOT FOR PRODUCTION MULTI-INSTANCE DEPLOYMENTS.</b> Failure counters
+/// live in process memory and reset on restart, and — worse — a brute-forcer
+/// hitting different instances behind a load balancer bypasses lockout entirely.
+/// </para>
+/// <para>
+/// ✅ <b>Safe to use for:</b> dev builds; unit tests; single-instance deployments
+/// where one process sees every login attempt.
+/// </para>
+/// <para>
+/// 🛑 <b>Unsafe — DO NOT USE — when:</b> the service runs as more than one
+/// instance and traffic is distributed across them. Use the Redis tracker from
+/// <c>TechTeaStudio.Auth.Redis</c> instead, wired via
+/// <c>services.AddTechTeaStudioAuth(cfg).UseLoginAttemptTracker&lt;RedisLoginAttemptTracker&gt;()</c>.
+/// </para>
 /// </summary>
 public sealed class InMemoryLoginAttemptTracker : ILoginAttemptTracker
 {
@@ -25,7 +37,7 @@ public sealed class InMemoryLoginAttemptTracker : ILoginAttemptTracker
             userId,
             _ =>
             {
-                var locked = _options.MaxFailedLoginAttempts <= 1 ? now.Add(_options.LockoutDuration) : (DateTimeOffset?)null;
+                var locked = _options.Lockout.MaxFailedAttempts <= 1 ? now.Add(_options.Lockout.Duration) : (DateTimeOffset?)null;
                 return new Entry(1, locked);
             },
             (_, current) =>
@@ -33,8 +45,8 @@ public sealed class InMemoryLoginAttemptTracker : ILoginAttemptTracker
                 if (current.LockedUntil > now)
                     return current; // already locked, no further counting
                 var newCount = current.Count + 1;
-                var locked = newCount >= _options.MaxFailedLoginAttempts
-                    ? now.Add(_options.LockoutDuration)
+                var locked = newCount >= _options.Lockout.MaxFailedAttempts
+                    ? now.Add(_options.Lockout.Duration)
                     : current.LockedUntil;
                 return new Entry(newCount, locked);
             });

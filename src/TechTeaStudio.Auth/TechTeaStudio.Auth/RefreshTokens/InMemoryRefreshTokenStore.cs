@@ -4,9 +4,30 @@ using TechTeaStudio.Auth.Abstractions;
 namespace TechTeaStudio.Auth.RefreshTokens;
 
 /// <summary>
-/// Default in-memory implementation of <see cref="IRefreshTokenStore"/>. Suitable
-/// for single-instance apps, integration tests, and sample code. **Not** suitable
-/// for multi-instance deployments — use the EF Core or Redis store for those.
+/// <para>
+/// ⚠️ <b>NOT FOR PRODUCTION MULTI-INSTANCE DEPLOYMENTS.</b> Default in-memory
+/// implementation of <see cref="IRefreshTokenStore"/>. Refresh tokens are held
+/// in a <c>ConcurrentDictionary</c> inside this process and lost on restart.
+/// </para>
+/// <para>
+/// ✅ <b>Safe to use for:</b> dev / debug builds; unit and integration tests;
+/// CLI tools and single-instance pet projects where forced re-login on deploy
+/// is acceptable.
+/// </para>
+/// <para>
+/// 🛑 <b>Unsafe — DO NOT USE — when:</b> the service runs as more than one
+/// instance behind a load balancer (refresh issued by instance A is unknown to
+/// instance B; chain-revocation kicks in; legitimate users get kicked out);
+/// any production deployment where users would notice forced re-login.
+/// </para>
+/// <para>
+/// Production replacements:
+/// <list type="bullet">
+///   <item><c>TechTeaStudio.Auth.EFCore</c> → <c>EfCoreRefreshTokenStore&lt;TContext&gt;</c> (relational DB)</item>
+///   <item><c>TechTeaStudio.Auth.Redis</c> → <c>RedisRefreshTokenStore</c> (distributed cache)</item>
+/// </list>
+/// Wire either via <c>services.AddTechTeaStudioAuth(cfg).UseRefreshTokenStore&lt;TStore&gt;()</c>.
+/// </para>
 /// </summary>
 public sealed class InMemoryRefreshTokenStore : IRefreshTokenStore
 {

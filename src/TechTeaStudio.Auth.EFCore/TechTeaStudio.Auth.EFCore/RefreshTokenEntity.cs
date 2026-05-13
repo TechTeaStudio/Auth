@@ -18,7 +18,14 @@ public sealed class RefreshTokenEntity
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
     public string? ReplacedByTokenHash { get; set; }
-    public uint RowVersion { get; set; } // xmin on PostgreSQL, rowversion on SQL Server.
+
+    /// <summary>
+    /// Optimistic-concurrency token. Stored as a 36-char GUID string so the same
+    /// schema works across SQL Server, PostgreSQL, SQLite, MySQL, and any other
+    /// provider — no <c>rowversion</c>/<c>xmin</c> magic required. The store
+    /// regenerates this on every UPDATE.
+    /// </summary>
+    public string ConcurrencyStamp { get; set; } = Guid.NewGuid().ToString();
 
     public RefreshToken ToDomain() => new()
     {
@@ -48,7 +55,7 @@ public static class ModelBuilderExtensions
     /// <summary>
     /// Registers <see cref="RefreshTokenEntity"/> with the model and applies the
     /// recommended indexes (unique on <c>TokenHash</c>; composite on
-    /// <c>UserId, ExpiresAt</c>). Call from <c>OnModelCreating</c>.
+    /// <c>UserId, ExpiresAt</c>) and concurrency-token mapping. Call from <c>OnModelCreating</c>.
     /// </summary>
     public static EntityTypeBuilder<RefreshTokenEntity> AddTechTeaStudioRefreshTokens(this ModelBuilder modelBuilder, string tableName = "TtsRefreshTokens")
     {
@@ -61,7 +68,7 @@ public static class ModelBuilderExtensions
         b.Property(e => e.UserId).IsRequired().HasMaxLength(256);
         b.Property(e => e.TokenHash).IsRequired().HasMaxLength(64);
         b.Property(e => e.ReplacedByTokenHash).HasMaxLength(64);
-        b.Property(e => e.RowVersion).IsConcurrencyToken();
+        b.Property(e => e.ConcurrencyStamp).IsRequired().HasMaxLength(64).IsConcurrencyToken();
 
         b.HasIndex(e => e.TokenHash).IsUnique();
         b.HasIndex(e => new { e.UserId, e.ExpiresAt });

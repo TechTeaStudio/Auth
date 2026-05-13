@@ -66,8 +66,8 @@ public sealed class JwtTokenProvider : ITokenProvider
             NotBefore = now,
             IssuedAt = now,
             Expires = now.Add(lifetime),
-            Issuer = options.Issuer,
-            Audience = options.Audience,
+            Issuer = options.Jwt.Issuer,
+            Audience = options.Jwt.Audience,
             SigningCredentials = creds,
         };
 
@@ -81,34 +81,12 @@ public sealed class JwtTokenProvider : ITokenProvider
         if (string.IsNullOrEmpty(token)) return null;
         try
         {
-            return _handler.ValidateToken(token, BuildValidationParameters(_monitor.CurrentValue), out _);
+            return _handler.ValidateToken(token, SigningKeyResolver.BuildValidationParameters(_monitor.CurrentValue), out _);
         }
         catch
         {
             return null;
         }
-    }
-
-    /// <summary>Builds the <see cref="TokenValidationParameters"/> for the current options snapshot.</summary>
-    public static TokenValidationParameters BuildValidationParameters(AuthOptions options)
-    {
-        var keys = SigningKeyResolver.ResolveValidating(options)
-            .Select(SigningKeyResolver.BuildValidationKey)
-            .ToList();
-
-        return new TokenValidationParameters
-        {
-            ValidateIssuer = !string.IsNullOrEmpty(options.Issuer),
-            ValidIssuer = options.Issuer,
-            ValidateAudience = !string.IsNullOrEmpty(options.Audience),
-            ValidAudience = options.Audience,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKeys = keys,
-            ClockSkew = options.ClockSkew,
-            NameClaimType = AuthClaims.Username,
-            RoleClaimType = AuthClaims.Role,
-        };
     }
 
     private sealed class StaticOptionsMonitor : IOptionsMonitor<AuthOptions>

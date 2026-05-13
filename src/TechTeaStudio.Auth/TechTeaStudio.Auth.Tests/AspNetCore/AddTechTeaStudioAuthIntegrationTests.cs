@@ -30,9 +30,9 @@ public class AddTechTeaStudioAuthIntegrationTests
                 {
                     c.AddInMemoryCollection(new Dictionary<string, string?>
                     {
-                        ["Auth:SecretKey"] = "test-key-that-is-32-characters!!",
-                        ["Auth:Issuer"] = "tts-it",
-                        ["Auth:Audience"] = "tts-it",
+                        ["Auth:Jwt:SecretKey"] = "test-key-that-is-32-characters!!",
+                        ["Auth:Jwt:Issuer"] = "tts-it",
+                        ["Auth:Jwt:Audience"] = "tts-it",
                     });
                 });
                 web.ConfigureServices((ctx, services) =>
@@ -150,9 +150,9 @@ public class AddTechTeaStudioAuthIntegrationTests
                     {
                         c.AddInMemoryCollection(new Dictionary<string, string?>
                         {
-                            ["Auth:SecretKey"] = "short",
-                            ["Auth:Issuer"] = "tts",
-                            ["Auth:Audience"] = "tts",
+                            ["Auth:Jwt:SecretKey"] = "short",
+                            ["Auth:Jwt:Issuer"] = "tts",
+                            ["Auth:Jwt:Audience"] = "tts",
                         });
                     });
                     web.ConfigureServices((ctx, services) =>

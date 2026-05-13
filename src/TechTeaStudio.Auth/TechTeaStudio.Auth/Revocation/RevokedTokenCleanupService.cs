@@ -6,7 +6,7 @@ namespace TechTeaStudio.Auth.Revocation;
 
 /// <summary>
 /// Background worker that prunes expired entries from <see cref="IRevokedTokenStore"/>.
-/// Period reuses <see cref="AuthOptions.RefreshTokenCleanupInterval"/> (default 1h)
+/// Period reuses <see cref="RefreshTokenOptions.CleanupInterval"/> (default 1h)
 /// to avoid yet another knob.
 /// </summary>
 public sealed class RevokedTokenCleanupService : BackgroundService
@@ -43,7 +43,7 @@ public sealed class RevokedTokenCleanupService : BackgroundService
 
             try
             {
-                await Task.Delay(_options.RefreshTokenCleanupInterval, stoppingToken).ConfigureAwait(false);
+                await Task.Delay(_options.RefreshTokens.CleanupInterval, stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { return; }
         }

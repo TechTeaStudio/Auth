@@ -6,9 +6,9 @@ using TechTeaStudio.Auth.Signing;
 namespace TechTeaStudio.Auth.AspNetCore;
 
 /// <summary>
-/// Validates <see cref="AuthOptions"/> beyond the per-property DataAnnotations:
-/// enforces a 256-bit signing key in bytes (not characters) and a sane relationship
-/// between the access-token lifetime and the refresh-token lifetime.
+/// Validates <see cref="AuthOptions"/> across nested sections: signing keys
+/// (either <c>Jwt.SecretKey</c> or at least one descriptor in <c>Jwt.Signing.Keys</c>),
+/// sane lifetimes, and the relationship between access-token and refresh-token TTLs.
 /// </summary>
 public sealed class AuthOptionsValidator : IValidateOptions<AuthOptions>
 {
@@ -18,52 +18,56 @@ public sealed class AuthOptionsValidator : IValidateOptions<AuthOptions>
 
         var failures = new List<string>();
 
-        // DataAnnotations: per-property rules.
-        var ctx = new ValidationContext(options);
-        var results = new List<ValidationResult>();
-        if (!Validator.TryValidateObject(options, ctx, results, validateAllProperties: true))
-            failures.AddRange(results.Select(r => r.ErrorMessage ?? "validation error"));
+        ValidateAnnotated(options.Jwt, "Jwt", failures);
+        ValidateAnnotated(options.Lockout, "Lockout", failures);
 
-        // Signing key check — either Signing.Keys is populated, or SecretKey is.
-        if (options.Signing.Keys.Count == 0)
+        // Jwt signing key: either Signing.Keys has entries, or SecretKey is set.
+        if (options.Jwt.Signing.Keys.Count == 0)
         {
-            if (string.IsNullOrEmpty(options.SecretKey))
-                failures.Add("AuthOptions.SecretKey is required when AuthOptions.Signing.Keys is empty.");
-            else if (Encoding.UTF8.GetByteCount(options.SecretKey) < 32)
-                failures.Add("AuthOptions.SecretKey must be at least 32 bytes (256 bits) when UTF-8-encoded.");
+            if (string.IsNullOrEmpty(options.Jwt.SecretKey))
+                failures.Add("Auth:Jwt:SecretKey is required when Auth:Jwt:Signing:Keys is empty.");
+            else if (Encoding.UTF8.GetByteCount(options.Jwt.SecretKey) < 32)
+                failures.Add("Auth:Jwt:SecretKey must be at least 32 bytes (256 bits) when UTF-8-encoded.");
         }
         else
         {
-            // Validate each descriptor by asking the resolver to build a security key.
-            foreach (var k in options.Signing.Keys)
+            foreach (var k in options.Jwt.Signing.Keys)
             {
                 if (string.IsNullOrEmpty(k.Kid))
                 {
-                    failures.Add("AuthOptions.Signing.Keys[*].Kid is required.");
+                    failures.Add("Auth:Jwt:Signing:Keys[*]:Kid is required.");
                     continue;
                 }
                 try { _ = SigningKeyResolver.BuildValidationKey(k); }
-                catch (Exception ex) { failures.Add($"Signing.Keys['{k.Kid}']: {ex.Message}"); }
+                catch (Exception ex) { failures.Add($"Auth:Jwt:Signing:Keys['{k.Kid}']: {ex.Message}"); }
             }
 
-            if (!string.IsNullOrEmpty(options.Signing.ActiveKid)
-                && !options.Signing.Keys.Any(k => k.Kid == options.Signing.ActiveKid))
+            if (!string.IsNullOrEmpty(options.Jwt.Signing.ActiveKid)
+                && !options.Jwt.Signing.Keys.Any(k => k.Kid == options.Jwt.Signing.ActiveKid))
             {
-                failures.Add($"Signing.ActiveKid '{options.Signing.ActiveKid}' is not present in Signing.Keys.");
+                failures.Add($"Auth:Jwt:Signing:ActiveKid '{options.Jwt.Signing.ActiveKid}' is not present in Auth:Jwt:Signing:Keys.");
             }
         }
 
-        if (options.TokenLifetime <= TimeSpan.Zero)
-            failures.Add("AuthOptions.TokenLifetime must be positive.");
+        if (options.Jwt.TokenLifetime <= TimeSpan.Zero)
+            failures.Add("Auth:Jwt:TokenLifetime must be positive.");
 
-        if (options.RefreshTokenLifetime <= options.TokenLifetime)
-            failures.Add("AuthOptions.RefreshTokenLifetime must be greater than TokenLifetime.");
+        if (options.RefreshTokens.Lifetime <= options.Jwt.TokenLifetime)
+            failures.Add("Auth:RefreshTokens:Lifetime must be greater than Auth:Jwt:TokenLifetime.");
 
-        if (options.ClockSkew < TimeSpan.Zero)
-            failures.Add("AuthOptions.ClockSkew must not be negative.");
+        if (options.Jwt.ClockSkew < TimeSpan.Zero)
+            failures.Add("Auth:Jwt:ClockSkew must not be negative.");
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void ValidateAnnotated(object section, string sectionName, List<string> failures)
+    {
+        var ctx = new ValidationContext(section);
+        var results = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(section, ctx, results, validateAllProperties: true))
+            failures.AddRange(results.Select(r => $"Auth:{sectionName}: {r.ErrorMessage}"));
     }
 }

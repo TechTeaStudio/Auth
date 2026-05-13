@@ -55,6 +55,7 @@ public class EfCoreRefreshTokenStore<TContext> : IRefreshTokenStore
         if (e is null) return;
         if (e.RevokedAt is null) e.RevokedAt = DateTimeOffset.UtcNow;
         if (replacedByTokenHash is not null) e.ReplacedByTokenHash = replacedByTokenHash;
+        e.ConcurrencyStamp = Guid.NewGuid().ToString();
         await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -63,7 +64,11 @@ public class EfCoreRefreshTokenStore<TContext> : IRefreshTokenStore
         if (string.IsNullOrEmpty(userId)) return;
         var now = DateTimeOffset.UtcNow;
         var active = await _set.Where(t => t.UserId == userId && t.RevokedAt == null).ToListAsync(cancellationToken).ConfigureAwait(false);
-        foreach (var e in active) e.RevokedAt = now;
+        foreach (var e in active)
+        {
+            e.RevokedAt = now;
+            e.ConcurrencyStamp = Guid.NewGuid().ToString();
+        }
         await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 

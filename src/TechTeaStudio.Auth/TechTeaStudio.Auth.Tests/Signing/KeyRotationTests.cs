@@ -16,14 +16,14 @@ public class KeyRotationTests
     {
         var opts = new AuthOptions
         {
-            Issuer = "iss",
-            Audience = "aud",
-            Signing = new SigningOptions
+            Jwt =
             {
-                ActiveKid = "k1",
-                Keys =
+                Issuer = "iss",
+                Audience = "aud",
+                Signing =
                 {
-                    new SigningKeyDescriptor { Kid = "k1", SymmetricKey = new string('1', 32) },
+                    ActiveKid = "k1",
+                    Keys = { new SigningKeyDescriptor { Kid = "k1", SymmetricKey = new string('1', 32) } },
                 },
             },
         };
@@ -41,10 +41,8 @@ public class KeyRotationTests
         var k1 = new SigningKeyDescriptor { Kid = "k1", SymmetricKey = new string('1', 32) };
         var k2 = new SigningKeyDescriptor { Kid = "k2", SymmetricKey = new string('2', 32) };
 
-        var optsOld = new AuthOptions { Issuer = "iss", Audience = "aud",
-            Signing = new SigningOptions { ActiveKid = "k1", Keys = { k1 } } };
-        var optsNew = new AuthOptions { Issuer = "iss", Audience = "aud",
-            Signing = new SigningOptions { ActiveKid = "k2", Keys = { k1, k2 } } };
+        var optsOld = new AuthOptions { Jwt = { Issuer = "iss", Audience = "aud", Signing = { ActiveKid = "k1", Keys = { k1 } } } };
+        var optsNew = new AuthOptions { Jwt = { Issuer = "iss", Audience = "aud", Signing = { ActiveKid = "k2", Keys = { k1, k2 } } } };
 
         var oldProvider = new JwtTokenProvider(optsOld.ToMonitor());
         var token = oldProvider.CreateToken("u", Array.Empty<Claim>(), TimeSpan.FromMinutes(5));
@@ -60,19 +58,14 @@ public class KeyRotationTests
         var pem = rsa.ExportRSAPrivateKeyPem();
         var opts = new AuthOptions
         {
-            Issuer = "iss",
-            Audience = "aud",
-            Signing = new SigningOptions
+            Jwt =
             {
-                ActiveKid = "r1",
-                Keys =
+                Issuer = "iss",
+                Audience = "aud",
+                Signing =
                 {
-                    new SigningKeyDescriptor
-                    {
-                        Kid = "r1",
-                        Algorithm = SigningAlgorithm.RS256,
-                        PrivateKeyPem = pem,
-                    },
+                    ActiveKid = "r1",
+                    Keys = { new SigningKeyDescriptor { Kid = "r1", Algorithm = SigningAlgorithm.RS256, PrivateKeyPem = pem } },
                 },
             },
         };
@@ -88,19 +81,14 @@ public class KeyRotationTests
         var pem = ec.ExportECPrivateKeyPem();
         var opts = new AuthOptions
         {
-            Issuer = "iss",
-            Audience = "aud",
-            Signing = new SigningOptions
+            Jwt =
             {
-                ActiveKid = "e1",
-                Keys =
+                Issuer = "iss",
+                Audience = "aud",
+                Signing =
                 {
-                    new SigningKeyDescriptor
-                    {
-                        Kid = "e1",
-                        Algorithm = SigningAlgorithm.ES256,
-                        PrivateKeyPem = pem,
-                    },
+                    ActiveKid = "e1",
+                    Keys = { new SigningKeyDescriptor { Kid = "e1", Algorithm = SigningAlgorithm.ES256, PrivateKeyPem = pem } },
                 },
             },
         };

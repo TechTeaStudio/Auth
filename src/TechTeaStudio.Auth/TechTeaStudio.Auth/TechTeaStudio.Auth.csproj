@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth</PackageId>
-    <Version>0.4.0</Version>
+    <Version>0.5.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Drop-in authentication primitives for ASP.NET Core. JWT (HS256/RS256/ES256) with signing-key rotation, PBKDF2-SHA256 password hashing, refresh tokens, audit, lockout, TOTP, recovery codes, cookie + bearer + API-key schemes.</Description>
@@ -22,18 +22,33 @@
     <Copyright>Copyright © Tech Tea Studio 2026</Copyright>
 
     <PackageReleaseNotes>
-v0.4.0 — Signing-key rotation with kid, multi-key validation window, optional RS256/ES256 asymmetric signing + JWKS endpoint, authorization policy helpers, cookie auth scheme, and rate-limit integration (net8+).
+v0.5.0 — Breaking-change cleanup release.
+
+Configuration:
+  * AuthOptions nested into Jwt / RefreshTokens / Lockout sub-options. Migrate appsettings keys: Auth:SecretKey -> Auth:Jwt:SecretKey, Auth:TokenLifetime -> Auth:Jwt:TokenLifetime, Auth:RefreshTokenLifetime -> Auth:RefreshTokens:Lifetime, Auth:MaxFailedLoginAttempts -> Auth:Lockout:MaxFailedAttempts, etc.
+
+Wire-up:
+  * AddTechTeaStudioAuth(...) now returns IAuthBuilder. All defaults use TryAdd; swap via .UseRefreshTokenStore&lt;...&gt;() / .UseLoginAttemptTracker&lt;...&gt;() / .UseAuthAuditLogger&lt;...&gt;() / .UseClaimsProfile&lt;...&gt;() / .UseRefreshClaimsResolver&lt;...&gt;().
+
+Removed:
+  * HyperionClaimsProfile, PelloClaimsProfile, ClaimsProfiles (product-specific — moved out of the library).
+  * AuthClaims.LegacyNameId constant + JwtTokenReader fallback to nameid (Hyperion-specific — reimplement locally in your app if needed).
+  * AuthRateLimit extensions — use Microsoft.AspNetCore.RateLimiting directly. See RECIPES.
+  * X-XSS-Protection header (deprecated, can introduce XSS in legacy browsers).
+
+Fixed:
+  * SignedTokenService now resolves its HMAC key via SigningKeyResolver — works after migrating to Signing.Keys (RS256/ES256). Previously it was hardcoded to Jwt.SecretKey and broke silently.
+  * Swashbuckle filter now picks up Minimal API endpoints declared with .RequireAuthorization() (was missing the lock icon for them).
+  * Swashbuckle package no longer references the base TechTeaStudio.Auth package.
 
 Added:
-  * AuthOptions.Signing (Keys, ActiveKid, KeyRetention) — rotate keys without restart via IOptionsMonitor.
-  * SigningAlgorithm enum (HS256 default, RS256, ES256). PEM-loaded RSA / ECDSA keys.
-  * JWKS endpoint helper: app.MapTechTeaStudioJwks() serves /.well-known/jwks.json with public keys only.
-  * AuthPolicies + AddTechTeaStudioPolicies(): 4 built-in named policies via AuthorizationHandlers.
-  * AddTechTeaStudioCookieAuth() — HttpOnly + SameSite=Strict + Secure cookie scheme alongside Bearer.
-  * RefreshCookieHelper for HttpOnly refresh-token cookies.
-  * AddTechTeaStudioRateLimit() (net8+) — fixed-window per-IP rate limiter for login endpoints.
+  * IRefreshClaimsResolver — RotateAsync(token, ct) overload that rebuilds claims via this resolver, removes the need for callers to thread claims into refresh endpoints.
+  * SHOUTY XML-doc warnings on every in-memory store / tracker.
+  * JWKS endpoint sends Cache-Control: max-age=600.
+  * Cookie scheme defaults to SecurePolicy.SameAsRequest (works on plain HTTP — opt into Always in production).
 
-Backward compatible: when Signing.Keys is empty, the legacy SecretKey path keeps working (HS256, kid="default").
+Changed:
+  * TechTeaStudio.Auth.EFCore: RefreshTokenEntity.RowVersion -&gt; ConcurrencyStamp (string). Works on every provider; SQL Server / Postgres / SQLite friendly.
 
 Full changelog: https://github.com/TechTeaStudio/Auth/blob/main/CHANGELOG.md
     </PackageReleaseNotes>

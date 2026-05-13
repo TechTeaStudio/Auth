@@ -29,22 +29,22 @@ public class JwksEndpointTests
                 web.UseTestServer();
                 web.ConfigureAppConfiguration(c => c.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["Auth:Issuer"] = "tts",
-                    ["Auth:Audience"] = "tts",
+                    ["Auth:Jwt:Issuer"] = "tts",
+                    ["Auth:Jwt:Audience"] = "tts",
                 }));
                 web.ConfigureServices((ctx, s) =>
                 {
                     s.AddRouting();
                     s.AddTechTeaStudioAuth(ctx.Configuration, o =>
                     {
-                        o.Signing.ActiveKid = "rsa-1";
-                        o.Signing.Keys.Add(new SigningKeyDescriptor
+                        o.Jwt.Signing.ActiveKid = "rsa-1";
+                        o.Jwt.Signing.Keys.Add(new SigningKeyDescriptor
                         {
                             Kid = "hmac-1",
                             Algorithm = SigningAlgorithm.HS256,
                             SymmetricKey = new string('s', 32),
                         });
-                        o.Signing.Keys.Add(new SigningKeyDescriptor
+                        o.Jwt.Signing.Keys.Add(new SigningKeyDescriptor
                         {
                             Kid = "rsa-1",
                             Algorithm = SigningAlgorithm.RS256,

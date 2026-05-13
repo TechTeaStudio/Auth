@@ -17,9 +17,12 @@ public class RefreshTokenBenchmarks
     {
         var opts = Options.Create(new AuthOptions
         {
-            SecretKey = "benchmark-signing-key-32-chars-!",
-            Issuer = "tts.bench",
-            Audience = "tts.bench.clients",
+            Jwt =
+            {
+                SecretKey = "benchmark-signing-key-32-chars-!",
+                Issuer = "tts.bench",
+                Audience = "tts.bench.clients",
+            },
         });
         var provider = JwtTokenProvider.ForOptions(opts);
         var store = new InMemoryRefreshTokenStore();

@@ -27,9 +27,9 @@ public class PolicyHelperTests
                 web.UseTestServer();
                 web.ConfigureAppConfiguration(c => c.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["Auth:SecretKey"] = "test-key-that-is-32-characters!!",
-                    ["Auth:Issuer"] = "tts",
-                    ["Auth:Audience"] = "tts",
+                    ["Auth:Jwt:SecretKey"] = "test-key-that-is-32-characters!!",
+                    ["Auth:Jwt:Issuer"] = "tts",
+                    ["Auth:Jwt:Audience"] = "tts",
                 }));
                 web.ConfigureServices((ctx, s) =>
                 {

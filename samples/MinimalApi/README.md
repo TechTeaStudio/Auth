@@ -42,12 +42,12 @@ curl -sX POST $BASE/logout -H 'content-type: application/json' \
 - `AddTechTeaStudioAuth(...)` is the single call that wires JWT bearer, the password hasher, the refresh-token service, the deny-list, lockout tracking, and the audit pipeline.
 - `EfCoreRefreshTokenStore<TContext>` replaces the default in-memory store — your refresh tokens persist with the rest of your data.
 - `AddTechTeaStudioBearerSwagger()` makes the Swagger UI "Authorize" button work end-to-end.
-- `ClaimsProfiles.Hyperion.BuildClaims(...)` keeps the Hyperion token shape for any service downstream that already expects it.
-- The login endpoint integrates with `ILoginAttemptTracker` — five failed attempts inside `Auth:LockoutDuration` returns `429 Too Many Requests`.
+- Claims are built inline (`new Claim(AuthClaims.Email, ...)`). Larger apps factor this into an `IClaimsProfile` implementation and register it via `.UseClaimsProfile<TProfile>()` — the library no longer ships product-specific profiles.
+- The login endpoint integrates with `ILoginAttemptTracker` — five failed attempts inside `Auth:Lockout:Duration` returns `429 Too Many Requests`.
 
 ## Production checklist
 
 - Replace `UseInMemoryDatabase` with the real provider (SQL Server / PostgreSQL / SQLite).
-- Move `Auth:SecretKey` out of `Program.cs` into user-secrets / env / a key vault.
+- Move `Auth:Jwt:SecretKey` out of `Program.cs` into user-secrets / env / a key vault.
 - Add `app.MapTechTeaStudioJwks()` if downstream services validate without sharing your secret.
-- Enable `app.UseRateLimiter()` + the `tts-auth-login` policy on the `/login` route.
+- Wire `Microsoft.AspNetCore.RateLimiting` on `/login` keyed by client IP (after `UseForwardedHeaders`).
