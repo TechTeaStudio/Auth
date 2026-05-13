@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/TechTeaStudio/Auth/main/icon.png" alt="TechTeaStudio.Auth logo" width="160" />
+  <img src="https://raw.githubusercontent.com/TechTeaStudio/Auth/product/icon.png" alt="TechTeaStudio.Auth logo" width="160" />
 </p>
 
 <h1 align="center">TechTeaStudio.Auth</h1>
@@ -12,7 +12,7 @@
   <a href="https://www.nuget.org/packages/TechTeaStudio.Auth"><img alt="NuGet" src="https://img.shields.io/nuget/v/TechTeaStudio.Auth.svg?logo=nuget&label=NuGet" /></a>
   <a href="https://www.nuget.org/packages/TechTeaStudio.Auth"><img alt="Downloads" src="https://img.shields.io/nuget/dt/TechTeaStudio.Auth.svg?logo=nuget&label=Downloads" /></a>
   <img alt=".NET" src="https://img.shields.io/badge/.NET-6.0%20%7C%208.0%20%7C%209.0%20%7C%2010.0-512BD4?logo=dotnet&logoColor=white" />
-  <a href="https://github.com/TechTeaStudio/Auth/actions/workflows/dotnet.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/TechTeaStudio/Auth/dotnet.yml?branch=main&logo=github&label=build" /></a>
+  <a href="https://github.com/TechTeaStudio/Auth/actions/workflows/dotnet.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/TechTeaStudio/Auth/dotnet.yml?branch=product&logo=github&label=build" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -322,7 +322,7 @@ Version lives in `TechTeaStudio.Auth.csproj` as a 3-part `<Version>X.Y.Z</Versio
 - New feature, source-compatible &rarr; `Y + 1`, reset `Z = 0`
 - Breaking change in public API &rarr; `X + 1` (after `1.0`), reset `Y = Z = 0`
 
-Commit format is `vX.Y.Z <short description>`. Push to `main` triggers the shared TechTeaStudio NuGet publish workflow, which packs and pushes to nuget.org with `--skip-duplicate`. **Never push to nuget.org manually.**
+Commit format is `vX.Y.Z <short description>`. Push to `product` triggers the shared TechTeaStudio NuGet publish workflow, which packs and pushes to nuget.org with `--skip-duplicate`. **Never push to nuget.org manually.**
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 

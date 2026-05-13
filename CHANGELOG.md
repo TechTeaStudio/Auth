@@ -3,12 +3,21 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-05-13
+
+CI/CD trigger moved to the `product` release branch to match the TechTeaStudio convention.
+
+### Changed
+- `.github/workflows/dotnet.yml` now triggers on `push` / `pull_request` to `product` (was `main`).
+- README badge URL, raw-image URL, and the "Versioning & release" section updated accordingly.
+- `CLAUDE.md` release-flow steps updated to push to `product`.
+
 ## [0.3.0] — 2026-05-13
 
 Documentation, CI/CD pipeline, and the Hyperion-legacy `nameid` claim adapter.
 
 ### Added
-- **CI/CD** — `.github/workflows/dotnet.yml` invokes the shared `TechTeaStudio/.github` reusable NuGet publish workflow on push/PR to `main`. Build, test, pack, and publish with `--skip-duplicate`. (TSA-9, TSA-38, TSA-39, TSA-40)
+- **CI/CD** — `.github/workflows/dotnet.yml` invokes the shared `TechTeaStudio/.github` reusable NuGet publish workflow on push/PR to `product`. Build, test, pack, and publish with `--skip-duplicate`. (TSA-9, TSA-38, TSA-39, TSA-40)
 - **Hyperion-legacy `nameid` fallback** — `JwtTokenReader.TryRead` now reads `UserId` from `nameid` when `sub` is absent. Lets a service that consumes tokens issued by pre-`TechTeaStudio.Auth` Hyperion code parse them without rewrite. (TSA-73)
 - **[docs/RECIPES.md](docs/RECIPES.md)** — 10 patterns covering login, refresh, immediate revocation, password reset, email confirmation, 2FA, API-key M2M auth, custom audit sink, metrics scraping, and multi-app claim profiles. (TSA-78)
 - **[docs/MIGRATION-Hyperion.md](docs/MIGRATION-Hyperion.md)** — step-by-step migration guide for the Hyperion Omni Client, with a lazy-upgrade strategy for the password hash. (TSA-71)
