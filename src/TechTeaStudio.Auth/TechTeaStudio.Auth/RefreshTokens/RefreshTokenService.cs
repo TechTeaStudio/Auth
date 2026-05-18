@@ -43,7 +43,20 @@ public sealed class RefreshTokenService
     }
 
     /// <summary>Issues a fresh access + refresh token pair for <paramref name="userId"/>.</summary>
-    public async Task<TokenPair> IssueAsync(string userId, IEnumerable<Claim> claims, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Backward-compatible overload (≤0.7.x signature). Forwards to the
+    /// device-aware overload with both device fields null.
+    /// </remarks>
+    public Task<TokenPair> IssueAsync(string userId, IEnumerable<Claim> claims, CancellationToken cancellationToken = default)
+        => IssueAsync(userId, claims, deviceId: null, deviceInfo: null, cancellationToken);
+
+    /// <summary>
+    /// Issues a fresh access + refresh token pair for <paramref name="userId"/>,
+    /// attributing the refresh token to the given device. The DeviceId/DeviceInfo
+    /// are persisted with the row and preserved across rotations so /sessions
+    /// endpoints can surface device attribution.
+    /// </summary>
+    public async Task<TokenPair> IssueAsync(string userId, IEnumerable<Claim> claims, string? deviceId, string? deviceInfo, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(userId)) throw new ArgumentException("userId is required.", nameof(userId));
         if (claims is null) throw new ArgumentNullException(nameof(claims));
@@ -58,6 +71,8 @@ public sealed class RefreshTokenService
             TokenHash = hash,
             CreatedAt = DateTimeOffset.UtcNow,
             ExpiresAt = expiresAt,
+            DeviceId = deviceId,
+            DeviceInfo = deviceInfo,
         };
         await _store.CreateAsync(entity, cancellationToken).ConfigureAwait(false);
 
@@ -123,6 +138,10 @@ public sealed class RefreshTokenService
             TokenHash = newHash,
             CreatedAt = DateTimeOffset.UtcNow,
             ExpiresAt = expiresAt,
+            // Preserve device attribution across rotations: a rotated token still
+            // represents the same device install as its predecessor.
+            DeviceId = existing.DeviceId,
+            DeviceInfo = existing.DeviceInfo,
         };
         await _store.CreateAsync(newEntity, cancellationToken).ConfigureAwait(false);
         await _store.RevokeAsync(existing.Id, newHash, cancellationToken).ConfigureAwait(false);

@@ -43,6 +43,43 @@ public abstract class RefreshTokenStoreContractTests
     }
 
     [Fact]
+    public async Task CreateAsync_roundtrips_device_id_and_info()
+    {
+        var store = CreateStore();
+        var token = NewToken() with { DeviceId = "device-uuid-42", DeviceInfo = "Phone" };
+        await store.CreateAsync(token);
+
+        var fetched = await store.GetByTokenHashAsync(token.TokenHash);
+        fetched!.DeviceId.Should().Be("device-uuid-42");
+        fetched.DeviceInfo.Should().Be("Phone");
+    }
+
+    [Fact]
+    public async Task CreateAsync_allows_null_device_fields_for_backward_compat()
+    {
+        var store = CreateStore();
+        var token = NewToken();
+        await store.CreateAsync(token);
+
+        var fetched = await store.GetByTokenHashAsync(token.TokenHash);
+        fetched!.DeviceId.Should().BeNull();
+        fetched.DeviceInfo.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetActiveForUserAsync_preserves_device_fields()
+    {
+        var store = CreateStore();
+        var token = NewToken("alice") with { DeviceId = "alice-phone", DeviceInfo = "Phone" };
+        await store.CreateAsync(token);
+
+        var actives = await store.GetActiveForUserAsync("alice");
+        var fetched = actives.Single(t => t.Id == token.Id);
+        fetched.DeviceId.Should().Be("alice-phone");
+        fetched.DeviceInfo.Should().Be("Phone");
+    }
+
+    [Fact]
     public async Task CreateAsync_throws_on_duplicate_hash()
     {
         var store = CreateStore();

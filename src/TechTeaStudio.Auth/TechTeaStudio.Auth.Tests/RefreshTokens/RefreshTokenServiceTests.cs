@@ -34,6 +34,43 @@ public class RefreshTokenServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_with_device_persists_device_attribution()
+    {
+        var service = NewService(out var store);
+        await service.IssueAsync("u-dev", Array.Empty<Claim>(), deviceId: "dev-42", deviceInfo: "Phone");
+
+        var actives = await store.GetActiveForUserAsync("u-dev");
+        actives.Should().HaveCount(1);
+        actives[0].DeviceId.Should().Be("dev-42");
+        actives[0].DeviceInfo.Should().Be("Phone");
+    }
+
+    [Fact]
+    public async Task IssueAsync_without_device_writes_null_attribution()
+    {
+        var service = NewService(out var store);
+        await service.IssueAsync("u-nodev", Array.Empty<Claim>());
+
+        var actives = await store.GetActiveForUserAsync("u-nodev");
+        actives[0].DeviceId.Should().BeNull();
+        actives[0].DeviceInfo.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RotateAsync_preserves_device_attribution_across_rotation()
+    {
+        var service = NewService(out var store);
+        var first = await service.IssueAsync("u-rot", Array.Empty<Claim>(), deviceId: "rot-device", deviceInfo: "Tablet");
+        var second = await service.RotateAsync(first.RefreshToken, Array.Empty<Claim>());
+
+        second.Should().NotBeNull();
+        var newHash = TokenHasher.HashRefreshToken(second!.RefreshToken);
+        var newRow = await store.GetByTokenHashAsync(newHash);
+        newRow!.DeviceId.Should().Be("rot-device");
+        newRow.DeviceInfo.Should().Be("Tablet");
+    }
+
+    [Fact]
     public async Task RotateAsync_revokes_old_and_issues_new()
     {
         var service = NewService(out var store);

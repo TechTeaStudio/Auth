@@ -3,6 +3,47 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-05-18
+
+Device attribution for refresh tokens. Lets consumers persist `DeviceId` and `DeviceInfo` alongside each refresh-token row so /sessions endpoints can identify which device a session belongs to. Pre-1.0 minor bump: the `RefreshToken` abstraction grew two fields and the EF Core schema grew two columns.
+
+### Added
+- **`RefreshToken.DeviceId`** (`string?`) and **`RefreshToken.DeviceInfo`** (`string?`) in `TechTeaStudio.Auth.Abstractions`. Default `null`; preserved across rotations by `RefreshTokenService.RotateAsync`.
+- **`RefreshTokenService.IssueAsync(userId, claims, deviceId, deviceInfo, ct)`** overload. The original `IssueAsync(userId, claims, ct)` overload is preserved and forwards with both device fields `null`, so existing call sites compile unchanged.
+- **`RefreshTokenEntity.DeviceId` / `RefreshTokenEntity.DeviceInfo`** columns (nullable `varchar(256)` / `varchar(64)`) in `TechTeaStudio.Auth.EFCore`. Registered by `AddTechTeaStudioRefreshTokens(...)`.
+- **`SchemaMigrations`** helper in `TechTeaStudio.Auth.EFCore` exposing ready-made `ALTER TABLE ... ADD COLUMN` snippets for PostgreSQL, SQL Server, and SQLite. Apply via `dbContext.Database.ExecuteSqlRawAsync(SchemaMigrations.AddDeviceColumnsSqlPostgres())` or run by hand.
+
+### Schema migration (existing deployments)
+
+Fresh deployments get the two columns automatically. For existing databases, run the SQL once:
+
+**PostgreSQL:**
+```sql
+ALTER TABLE "TtsRefreshTokens" ADD COLUMN IF NOT EXISTS "DeviceId"   varchar(256) NULL;
+ALTER TABLE "TtsRefreshTokens" ADD COLUMN IF NOT EXISTS "DeviceInfo" varchar(64)  NULL;
+```
+
+**SQL Server:**
+```sql
+IF COL_LENGTH('TtsRefreshTokens', 'DeviceId') IS NULL
+    ALTER TABLE [TtsRefreshTokens] ADD [DeviceId] nvarchar(256) NULL;
+IF COL_LENGTH('TtsRefreshTokens', 'DeviceInfo') IS NULL
+    ALTER TABLE [TtsRefreshTokens] ADD [DeviceInfo] nvarchar(64) NULL;
+```
+
+**SQLite:** see `SchemaMigrations.AddDeviceColumnsSqlSqlite` (no native `IF NOT EXISTS` on `ADD COLUMN` — wrap in try/catch or check `pragma_table_info` first).
+
+If you upgrade the NuGet package without running the migration, EF Core will throw on first insert because the model expects columns the table does not have.
+
+### Backward compatibility
+- Existing `IssueAsync(userId, claims)` and `IssueAsync(userId, claims, ct)` call sites compile and run identically — device fields default to `null`.
+- All other public APIs (`IRefreshTokenStore`, `RotateAsync`, `RevokeAsync`, etc.) are unchanged.
+- Stores that already implement `IRefreshTokenStore` keep working — they just stop persisting the new fields. To persist them, route through `EfCoreRefreshTokenStore` (post-upgrade) or update your custom store to copy `RefreshToken.DeviceId` / `RefreshToken.DeviceInfo` to/from its backing storage.
+
+### Notes
+- All TTS packages bumped to 0.8.0 to keep the constellation aligned (matches the 0.6.0 / 0.7.0 precedent).
+- `InMemoryRefreshTokenStore` needed no code changes — it stores `RefreshToken` records as-is.
+
 ## [0.7.0] — 2026-05-13
 
 New OAuth provider: GitHub. Authorization-code exchange via GitHub's REST API.

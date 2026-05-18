@@ -30,6 +30,21 @@ public sealed record RefreshToken
     /// </summary>
     public string? ReplacedByTokenHash { get; init; }
 
+    /// <summary>
+    /// Opaque identifier for the originating device/instance/install.
+    /// Set by the caller at IssueAsync; preserved across rotations. Surfaces in
+    /// /sessions endpoints so the user can tell which device a session belongs to.
+    /// Optional — defaults to null.
+    /// </summary>
+    public string? DeviceId { get; init; }
+
+    /// <summary>
+    /// Human-readable device/platform descriptor (e.g. "Phone", "PC", "iPad").
+    /// Set by the caller alongside DeviceId at issuance; preserved across rotations.
+    /// Optional — defaults to null.
+    /// </summary>
+    public string? DeviceInfo { get; init; }
+
     /// <summary>True when the token has not been revoked and has not expired.</summary>
     public bool IsActive => RevokedAt is null && ExpiresAt > DateTimeOffset.UtcNow;
 }

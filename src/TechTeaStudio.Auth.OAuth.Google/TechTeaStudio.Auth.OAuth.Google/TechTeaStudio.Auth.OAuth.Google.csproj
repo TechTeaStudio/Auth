@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.OAuth.Google</PackageId>
-    <Version>0.7.0</Version>
+    <Version>0.8.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Google Sign-In provider for TechTeaStudio.Auth.OAuth. Validates Google ID tokens (mobile / web / desktop client IDs) via Google.Apis.Auth and integrates with the ExternalLoginService orchestrator.</Description>

@@ -19,6 +19,12 @@ public sealed class RefreshTokenEntity
     public DateTimeOffset? RevokedAt { get; set; }
     public string? ReplacedByTokenHash { get; set; }
 
+    /// <summary>Originating device/install identifier. See <see cref="RefreshToken.DeviceId"/>.</summary>
+    public string? DeviceId { get; set; }
+
+    /// <summary>Human-readable device descriptor. See <see cref="RefreshToken.DeviceInfo"/>.</summary>
+    public string? DeviceInfo { get; set; }
+
     /// <summary>
     /// Optimistic-concurrency token. Stored as a 36-char GUID string so the same
     /// schema works across SQL Server, PostgreSQL, SQLite, MySQL, and any other
@@ -36,6 +42,8 @@ public sealed class RefreshTokenEntity
         ExpiresAt = ExpiresAt,
         RevokedAt = RevokedAt,
         ReplacedByTokenHash = ReplacedByTokenHash,
+        DeviceId = DeviceId,
+        DeviceInfo = DeviceInfo,
     };
 
     public static RefreshTokenEntity FromDomain(RefreshToken t) => new()
@@ -47,6 +55,8 @@ public sealed class RefreshTokenEntity
         ExpiresAt = t.ExpiresAt,
         RevokedAt = t.RevokedAt,
         ReplacedByTokenHash = t.ReplacedByTokenHash,
+        DeviceId = t.DeviceId,
+        DeviceInfo = t.DeviceInfo,
     };
 }
 
@@ -56,6 +66,13 @@ public static class ModelBuilderExtensions
     /// Registers <see cref="RefreshTokenEntity"/> with the model and applies the
     /// recommended indexes (unique on <c>TokenHash</c>; composite on
     /// <c>UserId, ExpiresAt</c>) and concurrency-token mapping. Call from <c>OnModelCreating</c>.
+    ///
+    /// <para>
+    /// Schema change in 0.8.0: two new nullable columns <c>DeviceId</c> (varchar(256))
+    /// and <c>DeviceInfo</c> (varchar(64)). Existing deployments must run an
+    /// <c>ALTER TABLE</c> — see <see cref="SchemaMigrations.AddDeviceColumnsSqlPostgres"/>
+    /// (or the SqlServer/Sqlite variants) for ready-made SQL.
+    /// </para>
     /// </summary>
     public static EntityTypeBuilder<RefreshTokenEntity> AddTechTeaStudioRefreshTokens(this ModelBuilder modelBuilder, string tableName = "TtsRefreshTokens")
     {
@@ -68,6 +85,8 @@ public static class ModelBuilderExtensions
         b.Property(e => e.UserId).IsRequired().HasMaxLength(256);
         b.Property(e => e.TokenHash).IsRequired().HasMaxLength(64);
         b.Property(e => e.ReplacedByTokenHash).HasMaxLength(64);
+        b.Property(e => e.DeviceId).HasMaxLength(256);
+        b.Property(e => e.DeviceInfo).HasMaxLength(64);
         b.Property(e => e.ConcurrencyStamp).IsRequired().HasMaxLength(64).IsConcurrencyToken();
 
         b.HasIndex(e => e.TokenHash).IsUnique();

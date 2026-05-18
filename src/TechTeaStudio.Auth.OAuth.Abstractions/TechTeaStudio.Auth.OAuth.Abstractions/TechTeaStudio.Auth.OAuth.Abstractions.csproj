@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.OAuth.Abstractions</PackageId>
-    <Version>0.7.0</Version>
+    <Version>0.8.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Provider-agnostic OAuth / OIDC sign-in orchestration for TechTeaStudio.Auth. Defines IExternalAuthProvider, IExternalLoginStore, and the three-outcome ExternalLoginService (authenticated / requires-password / requires-registration). Provider-specific validators live in sibling packages (TechTeaStudio.Auth.OAuth.Google, .Apple, .GitHub, ...).</Description>
