@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.Redis</PackageId>
-    <Version>0.8.0</Version>
+    <Version>0.8.1</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Redis-backed IRefreshTokenStore and ILoginAttemptTracker for TechTeaStudio.Auth — distributed lockout and refresh storage on top of StackExchange.Redis.</Description>

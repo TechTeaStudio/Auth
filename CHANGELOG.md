@@ -3,6 +3,15 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] — 2026-05-19
+
+Documentation-only release. No code or schema changes; same NuGet binaries as `0.8.0`. Coordinated patch bump across all sibling packages to keep the constellation aligned.
+
+### Documented
+
+- **Critical `IClaimsProfile` contract:** `JwtTokenProvider.CreateToken` already prepends `sub = userId` on every issuance. Consumer `IClaimsProfile` implementations **must not** also emit `AuthClaims.Subject` — duplicate same-type claims collapse into a JSON array (`"sub":["uuid","uuid"]`), which violates RFC 7519 and breaks every Microsoft.IdentityModel validator (`IDX12723` on token readers, `401 Unauthorized` on every `[Authorize]` endpoint, infinite refresh loops on mobile). New README warning under `## Multi-app claim profiles` and matching CLAUDE.md invariant.
+- Real production bug: Hyperion's `HyperionClaimsProfile` did exactly this, hidden for weeks behind silent client-side fallback. Fixed in Hyperion v0.2.6.8 (commit `2bb0eaf`).
+
 ## [0.8.0] — 2026-05-18
 
 Device attribution for refresh tokens. Lets consumers persist `DeviceId` and `DeviceInfo` alongside each refresh-token row so /sessions endpoints can identify which device a session belongs to. Pre-1.0 minor bump: the `RefreshToken` abstraction grew two fields and the EF Core schema grew two columns.

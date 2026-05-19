@@ -442,7 +442,7 @@ public sealed class MyAppClaimsProfile : IClaimsProfile
     public string Name => "MyApp";
     public IEnumerable<Claim> BuildClaims(ClaimsBuilderInput input)
     {
-        if (!string.IsNullOrEmpty(input.UserId)) yield return new Claim(AuthClaims.Subject, input.UserId);
+        // DO NOT yield AuthClaims.Subject ("sub") here — see warning below.
         if (!string.IsNullOrEmpty(input.Email))  yield return new Claim(AuthClaims.Email, input.Email);
         if (input.Roles is not null)
             foreach (var r in input.Roles) yield return new Claim(AuthClaims.Role, r);
@@ -454,6 +454,29 @@ builder.Services.AddTechTeaStudioAuth(builder.Configuration)
 ```
 
 The library deliberately does **not** ship product-specific profiles. Every consuming app owns its claim shape and the library stays generic.
+
+### ⚠️ Do NOT emit `sub` from your `IClaimsProfile`
+
+`JwtTokenProvider.CreateToken` already prepends `sub = userId` to the claim list on every issuance. If your `IClaimsProfile.BuildClaims` also yields `new Claim(AuthClaims.Subject, input.UserId)`, the resulting `ClaimsIdentity` has two claims with the same type `"sub"`. `JwtSecurityTokenHandler` then serializes them as a JSON array:
+
+```json
+{ "sub": ["the-user-id", "the-user-id"], ... }
+```
+
+That violates **RFC 7519** ("the `sub` value is a case-sensitive string"). Microsoft.IdentityModel validators (both the bearer middleware and the newer `JsonWebTokenHandler`) reject the JWT, surfacing as:
+
+- `IDX12723: Unable to decode the payload as Base64Url encoded string` in some readers (misleading — the payload base64url-decodes fine; the rejection is on the array-typed `sub` after JSON parse).
+- `401 Unauthorized` on every `[Authorize]` endpoint.
+- Refresh chain loops on mobile clients (refresh succeeds because it doesn't validate the JWT, but `/me` / `/sessions` / anything authenticated 401s, and the client retries forever).
+
+If your app also needs a legacy `nameid` claim for older downstream services, emit `nameid` (not `sub`) — the lib doesn't touch `nameid`:
+
+```csharp
+if (!string.IsNullOrEmpty(input.UserId))
+    yield return new Claim("nameid", input.UserId);  // OK: distinct claim type
+```
+
+This was a real production bug — please don't repeat it.
 
 ## In-memory defaults are NOT for multi-instance production
 

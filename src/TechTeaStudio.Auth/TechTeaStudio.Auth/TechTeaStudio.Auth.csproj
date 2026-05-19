@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth</PackageId>
-    <Version>0.8.0</Version>
+    <Version>0.8.1</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Drop-in authentication primitives for ASP.NET Core. JWT (HS256/RS256/ES256) with signing-key rotation, PBKDF2-SHA256 password hashing, refresh tokens, audit, lockout, TOTP, recovery codes, cookie + bearer + API-key schemes.</Description>
