@@ -16,7 +16,7 @@
     <OpenApiGenerateDocuments>false</OpenApiGenerateDocuments>
 
     <PackageId>TechTeaStudio.Auth.Swashbuckle</PackageId>
-    <Version>0.8.1</Version>
+    <Version>0.8.2</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Swashbuckle integration for TechTeaStudio.Auth-issued JWT bearer tokens — registers the security scheme and auto-attaches it to controller actions and Minimal API endpoints that require authorization. Standalone, no runtime dependency on the base Auth package.</Description>

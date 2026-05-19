@@ -12,7 +12,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.OAuth.EFCore</PackageId>
-    <Version>0.8.1</Version>
+    <Version>0.8.2</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>EF Core implementation of TechTeaStudio.Auth.OAuth's IExternalLoginStore. Ship-ready ExternalLoginEntity, fluent mapping helper, and the store class.</Description>

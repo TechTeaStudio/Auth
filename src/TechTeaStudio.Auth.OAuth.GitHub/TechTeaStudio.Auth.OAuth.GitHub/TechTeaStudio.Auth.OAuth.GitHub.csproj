@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.OAuth.GitHub</PackageId>
-    <Version>0.8.1</Version>
+    <Version>0.8.2</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>GitHub OAuth 2.0 provider for TechTeaStudio.Auth — handles authorization-code exchange against GitHub's API.</Description>

@@ -3,6 +3,26 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] — 2026-05-19
+
+Critical schema-migration fix. **Anyone on 0.8.0 or 0.8.1 must re-run `SchemaMigrations.AddDeviceColumnsSql*` after upgrading to 0.8.2** (the helper is idempotent — re-running is safe).
+
+### Fixed
+
+- **`SchemaMigrations.AddDeviceColumnsSql*` was missing the `ConcurrencyStamp` column.** The `0.8.0` change to `RefreshTokenEntity` introduced THREE new columns — `DeviceId`, `DeviceInfo`, and `ConcurrencyStamp` — but `SchemaMigrations` shipped with ALTER statements for only the first two. `RefreshTokenEntity.ConcurrencyStamp` is wired through `ModelBuilderExtensions.AddTechTeaStudioRefreshTokens` as `.IsRequired().HasMaxLength(64).IsConcurrencyToken()`, so EF Core attempts to use the column in every INSERT/UPDATE; when the column does not exist in the database, `EfCoreRefreshTokenStore.CreateAsync` throws `DbUpdateConcurrencyException("The database operation was expected to affect 1 row(s), but actually affected 0 row(s)")` and every refresh-token issuance fails — taking down login, register, refresh, and every OAuth flow.
+
+  The Postgres helper now adds:
+  ```sql
+  ALTER TABLE "TtsRefreshTokens" ADD COLUMN IF NOT EXISTS "ConcurrencyStamp" varchar(64) NOT NULL DEFAULT gen_random_uuid()::text;
+  ```
+  with equivalent variants for SQL Server (`NEWID()` default) and SQLite (`lower(hex(randomblob(16)))` default), so pre-existing rows backfill safely.
+
+- **Tracked in Hyperion as v0.2.6.12 (commit `ba13401`)** — Hyperion's docker-migrations directory got a separate `028_tts_refresh_tokens_concurrency_stamp.sql` because the bad 0.8.0 helper was already baked into Hyperion's deployed migration `027_tts_refresh_tokens_device_columns.sql`.
+
+### Lesson for future schema-affecting releases
+
+When `RefreshTokenEntity` (or any entity exposed via `ModelBuilderExtensions`) gains a column, `SchemaMigrations` MUST emit a matching ALTER for **every** new column, and the CHANGELOG entry MUST list them all. Test by upgrading a 0.7.0 deployment and exercising the full issue/rotate/revoke path before tagging.
+
 ## [0.8.1] — 2026-05-19
 
 Documentation-only release. No code or schema changes; same NuGet binaries as `0.8.0`. Coordinated patch bump across all sibling packages to keep the constellation aligned.
