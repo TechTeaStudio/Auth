@@ -58,18 +58,42 @@ public sealed class InMemoryRefreshTokenStore : IRefreshTokenStore
         return Task.CompletedTask;
     }
 
-    public Task RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Compare-and-swap via <see cref="ConcurrentDictionary{TKey,TValue}.TryUpdate"/>,
+    /// which compares the stored value against <c>existing</c> using
+    /// <see cref="RefreshToken"/>'s record structural equality: if another thread
+    /// mutated the row between our read and our write, the swap fails and we
+    /// retry against the freshly observed value. An already-revoked row gets its
+    /// <see cref="RefreshToken.ReplacedByTokenHash"/> backfilled only when that
+    /// slot is still empty (mirrors <c>EfCoreRefreshTokenStore</c>'s guarded
+    /// backfill) — never overwriting a winner's persisted successor with a losing
+    /// racer's phantom hash. Backfill never counts as an active→revoked transition.
+    /// </remarks>
+    public Task<bool> RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken cancellationToken = default)
     {
-        var existing = _byHash.Values.FirstOrDefault(t => t.Id == id);
-        if (existing is null) return Task.CompletedTask;
-
-        var revoked = existing with
+        while (true)
         {
-            RevokedAt = existing.RevokedAt ?? DateTimeOffset.UtcNow,
-            ReplacedByTokenHash = replacedByTokenHash ?? existing.ReplacedByTokenHash,
-        };
-        _byHash[existing.TokenHash] = revoked;
-        return Task.CompletedTask;
+            var existing = _byHash.Values.FirstOrDefault(t => t.Id == id);
+            if (existing is null) return Task.FromResult(false);
+
+            if (existing.RevokedAt is not null)
+            {
+                if (replacedByTokenHash is not null && existing.ReplacedByTokenHash is null)
+                {
+                    var backfilled = existing with { ReplacedByTokenHash = replacedByTokenHash };
+                    if (!_byHash.TryUpdate(existing.TokenHash, backfilled, existing)) continue;
+                }
+                return Task.FromResult(false);
+            }
+
+            var revoked = existing with
+            {
+                RevokedAt = DateTimeOffset.UtcNow,
+                ReplacedByTokenHash = replacedByTokenHash ?? existing.ReplacedByTokenHash,
+            };
+            if (_byHash.TryUpdate(existing.TokenHash, revoked, existing)) return Task.FromResult(true);
+            // Lost a race against a concurrent mutation of the same row — retry against the current value.
+        }
     }
 
     public Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default)

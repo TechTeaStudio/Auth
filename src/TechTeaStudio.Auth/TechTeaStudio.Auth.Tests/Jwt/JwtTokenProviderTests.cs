@@ -102,6 +102,38 @@ public class JwtTokenProviderTests
     }
 
     [Fact]
+    public void CreateToken_drops_reserved_claims_but_preserves_nameid_and_custom_claims()
+    {
+        var provider = new JwtTokenProvider(TestAuthOptions.Wrap());
+
+        var token = provider.CreateToken(
+            "user-1",
+            new[]
+            {
+                new Claim(AuthClaims.Subject, "attacker"),
+                new Claim("sub", "attacker-2"),
+                new Claim(ClaimTypes.NameIdentifier, "legacy-id-123"),
+                new Claim(AuthClaims.Role, "admin"),
+            },
+            TimeSpan.FromMinutes(5));
+
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        var jwt = handler.ReadJwtToken(token);
+
+        // The provider's own sub must survive as a single string claim — not a
+        // JSON array collapsed from the duplicate caller-supplied "sub" claims.
+        var subClaims = jwt.Claims.Where(c => c.Type == AuthClaims.Subject).ToList();
+        subClaims.Should().ContainSingle();
+        subClaims[0].Value.Should().Be("user-1");
+
+        // A distinct claim type (nameid != sub) must not be swept up by the filter.
+        jwt.Claims.Should().Contain(c => c.Type == "nameid" && c.Value == "legacy-id-123");
+
+        // Ordinary custom claims are untouched.
+        jwt.Claims.Should().Contain(c => c.Type == AuthClaims.Role && c.Value == "admin");
+    }
+
+    [Fact]
     public void CreateToken_rejects_invalid_arguments()
     {
         var provider = new JwtTokenProvider(TestAuthOptions.Wrap());

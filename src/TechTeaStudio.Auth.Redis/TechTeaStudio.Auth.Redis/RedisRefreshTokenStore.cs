@@ -73,13 +73,21 @@ public sealed class RedisRefreshTokenStore : IRefreshTokenStore
         await _db.SetAddAsync(UserKey(token.UserId), token.TokenHash).ConfigureAwait(false);
     }
 
-    public async Task RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Read-then-write — the audit already flagged this as racy (a Lua-script
+    /// atomicity rework is tracked separately; not attempted here). This fix is
+    /// scoped to the return-value contract only: <c>true</c> iff this call wrote
+    /// an active→revoked transition, <c>false</c> without writing when the row
+    /// was already revoked or is unknown.
+    /// </remarks>
+    // TODO: audit finding — make atomic via Lua (read-then-write is racy under concurrent revokes of the same id)
+    public async Task<bool> RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken cancellationToken = default)
     {
         // We do not have a reverse-index Id -> TokenHash. Scan the user set by scanning every key.
         // For the in-memory contract test, this is acceptable. Production callers prefer to revoke by hash.
         // Provide an overload would be cleaner; for now we walk all known hashes via SCAN.
         var server = _db.Multiplexer.GetServers().FirstOrDefault(s => s.IsConnected);
-        if (server is null) return;
+        if (server is null) return false;
         await foreach (var key in server.KeysAsync(_db.Database, $"{_prefix}:hash:*").WithCancellation(cancellationToken).ConfigureAwait(false))
         {
             var raw = await _db.StringGetAsync(key).ConfigureAwait(false);
@@ -87,16 +95,19 @@ public sealed class RedisRefreshTokenStore : IRefreshTokenStore
             var t = JsonSerializer.Deserialize<RefreshToken>((string)raw!, Json);
             if (t is null || t.Id != id) continue;
 
+            if (t.RevokedAt is not null) return false;
+
             var updated = t with
             {
-                RevokedAt = t.RevokedAt ?? DateTimeOffset.UtcNow,
+                RevokedAt = DateTimeOffset.UtcNow,
                 ReplacedByTokenHash = replacedByTokenHash ?? t.ReplacedByTokenHash,
             };
             var ttl = updated.ExpiresAt - DateTimeOffset.UtcNow;
             if (ttl <= TimeSpan.Zero) ttl = TimeSpan.FromMinutes(1);
             await _db.StringSetAsync(key, JsonSerializer.Serialize(updated, Json), ttl).ConfigureAwait(false);
-            return;
+            return true;
         }
+        return false;
     }
 
     public async Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default)

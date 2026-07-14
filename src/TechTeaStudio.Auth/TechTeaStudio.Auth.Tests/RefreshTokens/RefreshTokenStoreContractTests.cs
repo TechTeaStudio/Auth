@@ -123,6 +123,80 @@ public abstract class RefreshTokenStoreContractTests
     }
 
     [Fact]
+    public async Task RevokeAsync_on_an_already_revoked_token_is_idempotent()
+    {
+        var store = CreateStore();
+        var token = NewToken();
+        await store.CreateAsync(token);
+        await store.RevokeAsync(token.Id);
+
+        var act = () => store.RevokeAsync(token.Id);
+        await act.Should().NotThrowAsync();
+
+        var fetched = await store.GetByTokenHashAsync(token.TokenHash);
+        fetched!.RevokedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task RevokeAsync_on_an_already_revoked_token_still_records_a_new_successor_hash()
+    {
+        var store = CreateStore();
+        var token = NewToken();
+        await store.CreateAsync(token);
+        await store.RevokeAsync(token.Id);
+
+        await store.RevokeAsync(token.Id, "chain-successor-hash");
+
+        var fetched = await store.GetByTokenHashAsync(token.TokenHash);
+        fetched!.ReplacedByTokenHash.Should().Be("chain-successor-hash");
+    }
+
+    [Fact]
+    public async Task RevokeAsync_returns_true_when_it_flips_an_active_token()
+    {
+        var store = CreateStore();
+        var token = NewToken();
+        await store.CreateAsync(token);
+
+        (await store.RevokeAsync(token.Id)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RevokeAsync_returns_false_when_already_revoked()
+    {
+        var store = CreateStore();
+        var token = NewToken();
+        await store.CreateAsync(token);
+        await store.RevokeAsync(token.Id);
+
+        (await store.RevokeAsync(token.Id)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RevokeAsync_returns_false_for_unknown_id()
+    {
+        var store = CreateStore();
+        (await store.RevokeAsync(Guid.NewGuid())).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RevokeAsync_does_not_overwrite_an_existing_successor_hash()
+    {
+        // Guards the RotateAsync-race clobber: the CAS winner records its real
+        // successor; a losing racer that reaches the already-revoked backfill with
+        // its own phantom hash must NOT overwrite it, or RevokeChainOnReuse breaks.
+        var store = CreateStore();
+        var token = NewToken();
+        await store.CreateAsync(token);
+
+        (await store.RevokeAsync(token.Id, "winner-successor-hash")).Should().BeTrue();
+        (await store.RevokeAsync(token.Id, "loser-phantom-hash")).Should().BeFalse();
+
+        var fetched = await store.GetByTokenHashAsync(token.TokenHash);
+        fetched!.ReplacedByTokenHash.Should().Be("winner-successor-hash");
+    }
+
+    [Fact]
     public async Task GetActiveForUserAsync_returns_only_active_for_that_user()
     {
         var store = CreateStore();

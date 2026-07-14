@@ -57,6 +57,12 @@ public sealed class JwtTokenProvider : ITokenProvider
         foreach (var c in claims)
         {
             if (c is null) continue;
+            // Drop caller-supplied reserved claims. JwtSecurityTokenHandler collapses two
+            // same-typed claims into a JSON array ("sub":["a","b"]), which violates RFC 7519
+            // (sub/jti MUST be strings) and every Microsoft.IdentityModel validator then rejects
+            // the token. A claims profile that re-emits sub is the exact cause of a past Hyperion
+            // outage — the provider owns these three, callers cannot override them.
+            if (IsReservedClaim(c.Type)) continue;
             allClaims.Add(c);
         }
 
@@ -74,6 +80,15 @@ public sealed class JwtTokenProvider : ITokenProvider
         var token = _handler.CreateToken(descriptor);
         return _handler.WriteToken(token);
     }
+
+    /// <summary>
+    /// Reserved JWT claim types the provider emits itself and callers must not duplicate.
+    /// Scoped to the short registered names only: a caller may still legitimately emit a
+    /// distinct <c>nameid</c> (ClaimTypes.NameIdentifier) for legacy downstream services —
+    /// that maps to "nameid", never "sub", so it does not collide.
+    /// </summary>
+    private static bool IsReservedClaim(string type) =>
+        type is AuthClaims.Subject or AuthClaims.JwtId or AuthClaims.IssuedAt;
 
     /// <inheritdoc />
     public ClaimsPrincipal? ValidateToken(string token)

@@ -132,6 +132,20 @@ public sealed class RefreshTokenService
         var newHash = TokenHasher.HashRefreshToken(raw);
         var expiresAt = DateTimeOffset.UtcNow.Add(_options.RefreshTokens.Lifetime);
 
+        // Revoke-first compare-and-swap: only the caller whose RevokeAsync actually
+        // flips this row from active to revoked may issue the successor. This closes
+        // both the double-spend window (a downstream CreateAsync failure now leaves
+        // the presented token revoked — fail-closed, no forked live token) and the
+        // concurrency fork (two parallel rotations of the same token both pass the
+        // IsActive check above, but only one of them wins this CAS).
+        var claimed = await _store.RevokeAsync(existing.Id, newHash, cancellationToken).ConfigureAwait(false);
+        if (!claimed)
+        {
+            AuthDiagnostics.RefreshReuseDetectedTotal.Add(1);
+            await _audit.LogAsync(new RefreshReuseDetectedEvent(existing.UserId, existing.TokenHash, 0, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
         var newEntity = new RefreshToken
         {
             UserId = existing.UserId,
@@ -144,7 +158,6 @@ public sealed class RefreshTokenService
             DeviceInfo = existing.DeviceInfo,
         };
         await _store.CreateAsync(newEntity, cancellationToken).ConfigureAwait(false);
-        await _store.RevokeAsync(existing.Id, newHash, cancellationToken).ConfigureAwait(false);
 
         var access = _tokens.CreateToken(existing.UserId, claims, _options.Jwt.TokenLifetime);
 

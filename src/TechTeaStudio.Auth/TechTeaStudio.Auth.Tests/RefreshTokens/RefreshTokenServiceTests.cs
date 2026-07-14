@@ -20,6 +20,32 @@ public class RefreshTokenServiceTests
         return new RefreshTokenService(provider, store, opts);
     }
 
+    /// <summary>
+    /// Decorates a real <see cref="IRefreshTokenStore"/> and makes <see cref="CreateAsync"/>
+    /// always throw, while <see cref="RevokeAsync"/> forwards to the real store — used to
+    /// reproduce a downstream failure that lands strictly AFTER a winning revoke-first CAS.
+    /// </summary>
+    private sealed class CreateAlwaysThrowsStore : IRefreshTokenStore
+    {
+        private readonly IRefreshTokenStore _inner;
+        public CreateAlwaysThrowsStore(IRefreshTokenStore inner) => _inner = inner;
+
+        public Task<RefreshToken?> GetByTokenHashAsync(string tokenHash, CancellationToken cancellationToken = default) =>
+            _inner.GetByTokenHashAsync(tokenHash, cancellationToken);
+        public Task<IReadOnlyList<RefreshToken>> GetActiveForUserAsync(string userId, CancellationToken cancellationToken = default) =>
+            _inner.GetActiveForUserAsync(userId, cancellationToken);
+        public Task CreateAsync(RefreshToken token, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("simulated downstream failure after the winning revoke");
+        public Task<bool> RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken cancellationToken = default) =>
+            _inner.RevokeAsync(id, replacedByTokenHash, cancellationToken);
+        public Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default) =>
+            _inner.RevokeAllForUserAsync(userId, cancellationToken);
+        public Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default) =>
+            _inner.CleanupExpiredAsync(cutoff, cancellationToken);
+        public Task DeleteAllForUserAsync(string userId, CancellationToken cancellationToken = default) =>
+            _inner.DeleteAllForUserAsync(userId, cancellationToken);
+    }
+
     [Fact]
     public async Task IssueAsync_returns_access_and_refresh()
     {
@@ -131,5 +157,31 @@ public class RefreshTokenServiceTests
 
         var row = await store.GetByTokenHashAsync(TokenHasher.HashRefreshToken(pair.RefreshToken));
         row!.RevokedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task RotateAsync_leaves_presented_token_revoked_when_CreateAsync_fails_after_the_winning_revoke()
+    {
+        var backingStore = new InMemoryRefreshTokenStore();
+        var concrete = TestAuthOptions.Create();
+        var provider = new JwtTokenProvider(concrete.ToMonitor());
+
+        var issuingService = new RefreshTokenService(provider, backingStore, Options.Create(concrete));
+        var pair = await issuingService.IssueAsync("u-fail-closed", Array.Empty<Claim>());
+
+        var failingStore = new CreateAlwaysThrowsStore(backingStore);
+        var rotatingService = new RefreshTokenService(provider, failingStore, Options.Create(concrete));
+
+        var act = () => rotatingService.RotateAsync(pair.RefreshToken, Array.Empty<Claim>());
+        await act.Should().ThrowAsync<InvalidOperationException>();
+
+        // Fail-closed: the CAS already won and revoked the presented token before
+        // CreateAsync blew up, so there is no live token left for this user at all —
+        // strictly better than the old create-then-revoke order, which could have
+        // left the pre-rotation token live (or, on a different failure point, forked).
+        var row = await backingStore.GetByTokenHashAsync(TokenHasher.HashRefreshToken(pair.RefreshToken));
+        row!.RevokedAt.Should().NotBeNull();
+        row.IsActive.Should().BeFalse();
+        (await backingStore.GetActiveForUserAsync("u-fail-closed")).Should().BeEmpty();
     }
 }

@@ -21,7 +21,14 @@ public interface IRefreshTokenStore
     /// <paramref name="replacedByTokenHash"/> is supplied, it records the successor
     /// in the rotation chain.
     /// </summary>
-    Task RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken cancellationToken = default);
+    /// <returns>
+    /// <c>true</c> iff THIS call transitioned a currently-active row to revoked;
+    /// <c>false</c> when the row was already revoked or does not exist (idempotent).
+    /// Callers use this as a compare-and-swap to detect a lost race against a
+    /// concurrent revoke/rotation of the same token — only the caller that gets
+    /// <c>true</c> may treat itself as the sole owner of the revocation.
+    /// </returns>
+    Task<bool> RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken cancellationToken = default);
 
     /// <summary>Revokes every active token currently issued to <paramref name="userId"/>.</summary>
     Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default);

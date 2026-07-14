@@ -93,7 +93,7 @@ public static class AuthServiceCollectionExtensions
         services.TryAddSingleton<ITokenReader, JwtTokenReader>();
         services.TryAddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.TryAddSingleton<IRefreshTokenStore, InMemoryRefreshTokenStore>();
-        services.TryAddSingleton<RefreshTokenService>();
+        services.TryAddScoped<RefreshTokenService>();
         services.TryAddSingleton<IRefreshClaimsResolver>(NullRefreshClaimsResolver.Instance);
         services.TryAddSingleton<ILoginAttemptTracker, InMemoryLoginAttemptTracker>();
         services.TryAddSingleton<IRevokedTokenStore, InMemoryRevokedTokenStore>();

@@ -558,7 +558,7 @@ public interface IRefreshTokenStore
     Task<RefreshToken?> GetByTokenHashAsync(string tokenHash, CancellationToken ct = default);
     Task<IReadOnlyList<RefreshToken>> GetActiveForUserAsync(string userId, CancellationToken ct = default);
     Task CreateAsync(RefreshToken token, CancellationToken ct = default);
-    Task RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken ct = default);
+    Task<bool> RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken ct = default);
     Task RevokeAllForUserAsync(string userId, CancellationToken ct = default);
     Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken ct = default);
     Task DeleteAllForUserAsync(string userId, CancellationToken ct = default);

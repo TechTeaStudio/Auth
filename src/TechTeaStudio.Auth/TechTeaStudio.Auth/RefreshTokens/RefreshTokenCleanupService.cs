@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,18 +12,25 @@ namespace TechTeaStudio.Auth.RefreshTokens;
 /// <see cref="RefreshTokenOptions.CleanupInterval"/> (default 1h).
 /// Exceptions are logged and swallowed — the service never crashes the host.
 /// </summary>
+/// <remarks>
+/// Resolves <see cref="IRefreshTokenStore"/> from a fresh <see cref="IServiceScope"/>
+/// on every tick instead of taking it as a constructor dependency — this service is
+/// hosted as a singleton, and a directly-injected SCOPED store (e.g.
+/// <c>EfCoreRefreshTokenStore&lt;TContext&gt;</c>) would either fail DI validation or
+/// become a captive dependency pinned to one <c>DbContext</c> for the process lifetime.
+/// </remarks>
 public sealed class RefreshTokenCleanupService : BackgroundService
 {
-    private readonly IRefreshTokenStore _store;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly AuthOptions _options;
     private readonly ILogger<RefreshTokenCleanupService>? _logger;
 
     public RefreshTokenCleanupService(
-        IRefreshTokenStore store,
+        IServiceScopeFactory scopeFactory,
         IOptions<AuthOptions> options,
         ILogger<RefreshTokenCleanupService>? logger = null)
     {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger;
     }
@@ -33,7 +41,9 @@ public sealed class RefreshTokenCleanupService : BackgroundService
         {
             try
             {
-                var removed = await _store.CleanupExpiredAsync(DateTimeOffset.UtcNow, stoppingToken).ConfigureAwait(false);
+                using var scope = _scopeFactory.CreateScope();
+                var store = scope.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
+                var removed = await store.CleanupExpiredAsync(DateTimeOffset.UtcNow, stoppingToken).ConfigureAwait(false);
                 if (removed > 0)
                     _logger?.LogInformation("Cleaned up {Removed} expired refresh tokens.", removed);
             }
