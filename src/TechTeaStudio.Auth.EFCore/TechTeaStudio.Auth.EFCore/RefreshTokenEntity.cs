@@ -14,6 +14,10 @@ public sealed class RefreshTokenEntity
     public Guid Id { get; set; } = Guid.NewGuid();
     public string UserId { get; set; } = string.Empty;
     public string TokenHash { get; set; } = string.Empty;
+
+    /// <summary>Rotation family this row belongs to. See <see cref="RefreshToken.FamilyId"/>.</summary>
+    public Guid FamilyId { get; set; } = Guid.NewGuid();
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
@@ -38,6 +42,7 @@ public sealed class RefreshTokenEntity
         Id = Id,
         UserId = UserId,
         TokenHash = TokenHash,
+        FamilyId = FamilyId,
         CreatedAt = CreatedAt,
         ExpiresAt = ExpiresAt,
         RevokedAt = RevokedAt,
@@ -51,6 +56,7 @@ public sealed class RefreshTokenEntity
         Id = t.Id,
         UserId = t.UserId,
         TokenHash = t.TokenHash,
+        FamilyId = t.FamilyId,
         CreatedAt = t.CreatedAt,
         ExpiresAt = t.ExpiresAt,
         RevokedAt = t.RevokedAt,
@@ -73,6 +79,15 @@ public static class ModelBuilderExtensions
     /// <c>ALTER TABLE</c> — see <see cref="SchemaMigrations.AddDeviceColumnsSqlPostgres"/>
     /// (or the SqlServer/Sqlite variants) for ready-made SQL.
     /// </para>
+    /// <para>
+    /// Schema change in 0.10.0: a new non-nullable <c>FamilyId</c> (uuid) column, backing
+    /// stolen-token (reuse) detection's family-wide revoke. Existing deployments must run an
+    /// <c>ALTER TABLE</c> — see <see cref="SchemaMigrations.AddFamilyIdColumnSqlPostgres"/>
+    /// (or the SqlServer/Sqlite variants) for ready-made SQL. Pre-migration rows each get
+    /// backfilled with a distinct random <c>FamilyId</c> (a family of one) — they keep
+    /// validating and rotating normally; see that method's remarks for the one documented
+    /// limitation this backfill carries.
+    /// </para>
     /// </summary>
     public static EntityTypeBuilder<RefreshTokenEntity> AddTechTeaStudioRefreshTokens(this ModelBuilder modelBuilder, string tableName = "TtsRefreshTokens")
     {
@@ -84,6 +99,7 @@ public static class ModelBuilderExtensions
 
         b.Property(e => e.UserId).IsRequired().HasMaxLength(256);
         b.Property(e => e.TokenHash).IsRequired().HasMaxLength(64);
+        b.Property(e => e.FamilyId).IsRequired();
         b.Property(e => e.ReplacedByTokenHash).HasMaxLength(64);
         b.Property(e => e.DeviceId).HasMaxLength(256);
         b.Property(e => e.DeviceInfo).HasMaxLength(64);
@@ -91,6 +107,7 @@ public static class ModelBuilderExtensions
 
         b.HasIndex(e => e.TokenHash).IsUnique();
         b.HasIndex(e => new { e.UserId, e.ExpiresAt });
+        b.HasIndex(e => e.FamilyId);
         return b;
     }
 }

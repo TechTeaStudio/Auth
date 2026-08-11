@@ -37,4 +37,11 @@ public class RefreshTokenTests
         new RefreshToken().Id.Should().NotBe(Guid.Empty);
         new RefreshToken().Id.Should().NotBe(new RefreshToken().Id);
     }
+
+    [Fact]
+    public void FamilyId_defaults_to_fresh_guid()
+    {
+        new RefreshToken().FamilyId.Should().NotBe(Guid.Empty);
+        new RefreshToken().FamilyId.Should().NotBe(new RefreshToken().FamilyId);
+    }
 }

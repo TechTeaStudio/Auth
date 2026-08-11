@@ -33,6 +33,20 @@ public interface IRefreshTokenStore
     /// <summary>Revokes every active token currently issued to <paramref name="userId"/>.</summary>
     Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Revokes every active token in <paramref name="familyId"/>'s rotation family — the
+    /// whole login-to-latest-refresh chain, not just one row. Used by stolen-token (reuse)
+    /// detection: presenting an already-used/revoked token proves knowledge of a leaked
+    /// token, so the entire family, including whatever token it was rotated into, is
+    /// burned, forcing re-login on every device sharing that family. Implementations
+    /// should make this a single atomic set-based operation where the backing store
+    /// supports one (e.g. a guarded UPDATE in a relational store); see each store's own
+    /// remarks for its actual atomicity guarantee (the Redis store, like its other bulk
+    /// operations, is a documented best-effort read-then-write, not a single atomic op).
+    /// </summary>
+    /// <returns>The number of rows this call transitioned from active to revoked.</returns>
+    Task<int> RevokeFamilyAsync(Guid familyId, CancellationToken cancellationToken = default);
+
     /// <summary>Deletes every token whose <see cref="RefreshToken.ExpiresAt"/> is at or before <paramref name="cutoff"/>.</summary>
     /// <returns>The number of rows deleted.</returns>
     Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default);

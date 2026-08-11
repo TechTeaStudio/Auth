@@ -15,6 +15,16 @@ public sealed record RefreshToken
     /// <summary>SHA-256 of the raw refresh token, hex-encoded lower-case.</summary>
     public string TokenHash { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Identifies this token's rotation family. A login mints a fresh <see cref="FamilyId"/>;
+    /// every rotation of that token (and its successors) preserves it. Stolen-token (reuse)
+    /// detection revokes an entire family atomically via <see cref="IRefreshTokenStore.RevokeFamilyAsync"/>
+    /// rather than walking <see cref="ReplacedByTokenHash"/> hop by hop. Defaults to a fresh
+    /// GUID so ad-hoc construction (tests, migrations backfilling a legacy row) never leaves
+    /// a token family-less.
+    /// </summary>
+    public Guid FamilyId { get; init; } = Guid.NewGuid();
+
     /// <summary>UTC timestamp the token was issued.</summary>
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 

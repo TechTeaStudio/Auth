@@ -106,6 +106,19 @@ public sealed class InMemoryRefreshTokenStore : IRefreshTokenStore
         return Task.CompletedTask;
     }
 
+    /// <remarks>Bulk best-effort update, same shape as <see cref="RevokeAllForUserAsync"/>.</remarks>
+    public Task<int> RevokeFamilyAsync(Guid familyId, CancellationToken cancellationToken = default)
+    {
+        var count = 0;
+        foreach (var t in _byHash.Values.Where(t => t.FamilyId == familyId && t.RevokedAt is null).ToList())
+        {
+            var revoked = t with { RevokedAt = DateTimeOffset.UtcNow };
+            _byHash[t.TokenHash] = revoked;
+            count++;
+        }
+        return Task.FromResult(count);
+    }
+
     public Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
     {
         var expired = _byHash.Values.Where(t => t.ExpiresAt <= cutoff).ToList();

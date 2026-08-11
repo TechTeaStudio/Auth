@@ -116,6 +116,13 @@ public sealed class EfCoreRefreshTokenServiceConcurrencyTests : IDisposable
             finally { _coord.DbMutex.Release(); }
         }
 
+        public async Task<int> RevokeFamilyAsync(Guid familyId, CancellationToken cancellationToken = default)
+        {
+            await _coord.DbMutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try { return await _inner.RevokeFamilyAsync(familyId, cancellationToken).ConfigureAwait(false); }
+            finally { _coord.DbMutex.Release(); }
+        }
+
         public async Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
         {
             await _coord.DbMutex.WaitAsync(cancellationToken).ConfigureAwait(false);

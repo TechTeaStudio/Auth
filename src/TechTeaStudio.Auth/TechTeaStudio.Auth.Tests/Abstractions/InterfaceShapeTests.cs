@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Reflection;
+using System.Security.Claims;
 using FluentAssertions;
 using TechTeaStudio.Auth.Abstractions;
 using Xunit;
@@ -11,7 +13,8 @@ public class InterfaceShapeTests
     public void ITokenProvider_has_expected_members()
     {
         var t = typeof(ITokenProvider);
-        t.GetMethod("CreateToken").Should().NotBeNull();
+        t.GetMethod("CreateToken", new[] { typeof(string), typeof(IEnumerable<Claim>), typeof(TimeSpan) }).Should().NotBeNull();
+        t.GetMethod("CreateToken", new[] { typeof(string), typeof(IEnumerable<Claim>), typeof(TokenDescriptor) }).Should().NotBeNull();
         t.GetMethod("ValidateToken").Should().NotBeNull();
     }
 
@@ -30,7 +33,7 @@ public class InterfaceShapeTests
     }
 
     [Fact]
-    public void IRefreshTokenStore_has_seven_methods()
+    public void IRefreshTokenStore_has_eight_methods()
     {
         var members = typeof(IRefreshTokenStore)
             .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
@@ -44,6 +47,7 @@ public class InterfaceShapeTests
             "CreateAsync",
             "RevokeAsync",
             "RevokeAllForUserAsync",
+            "RevokeFamilyAsync",
             "CleanupExpiredAsync",
             "DeleteAllForUserAsync",
         });

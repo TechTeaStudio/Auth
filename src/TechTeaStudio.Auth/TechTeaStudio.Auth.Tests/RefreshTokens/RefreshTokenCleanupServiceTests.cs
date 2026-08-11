@@ -25,6 +25,7 @@ public class RefreshTokenCleanupServiceTests
         public Task CreateAsync(RefreshToken token, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<bool> RevokeAsync(Guid id, string? replacedByTokenHash = null, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<int> RevokeFamilyAsync(Guid familyId, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task DeleteAllForUserAsync(string userId, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

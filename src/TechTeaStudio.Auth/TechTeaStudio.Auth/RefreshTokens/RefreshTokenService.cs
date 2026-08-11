@@ -9,19 +9,13 @@ namespace TechTeaStudio.Auth.RefreshTokens;
 /// Issues, rotates, and revokes refresh tokens on top of a pluggable
 /// <see cref="IRefreshTokenStore"/>. Refresh tokens are single-use — every
 /// successful rotation revokes the presented token and emits a fresh one.
-/// Presenting an already-revoked token revokes the whole rotation chain when
+/// Every token issued to a user belongs to a rotation family (<see cref="RefreshToken.FamilyId"/>):
+/// a login mints a fresh family, and rotation preserves it. Presenting an
+/// already-used/revoked token revokes the whole family when
 /// <see cref="RefreshTokenOptions.RevokeChainOnReuse"/> is enabled.
 /// </summary>
 public sealed class RefreshTokenService
 {
-    /// <summary>
-    /// Hard cap on rotation-chain length walked during replay detection. Any chain
-    /// longer than this is treated as corrupt data and we stop walking to avoid an
-    /// infinite loop. 1000 is comfortably above any legitimate use (one rotation
-    /// per minute for 16 hours).
-    /// </summary>
-    private const int MaxChainWalkDepth = 1000;
-
     private readonly ITokenProvider _tokens;
     private readonly IRefreshTokenStore _store;
     private readonly AuthOptions _options;
@@ -69,6 +63,8 @@ public sealed class RefreshTokenService
         {
             UserId = userId,
             TokenHash = hash,
+            // A login always mints a fresh family — this token has no predecessor.
+            FamilyId = Guid.NewGuid(),
             CreatedAt = DateTimeOffset.UtcNow,
             ExpiresAt = expiresAt,
             DeviceId = deviceId,
@@ -92,40 +88,85 @@ public sealed class RefreshTokenService
     /// </summary>
     public async Task<TokenPair?> RotateAsync(string presentedRefreshToken, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(presentedRefreshToken)) return null;
-        var presentedHash = TokenHasher.HashRefreshToken(presentedRefreshToken);
-        var existing = await _store.GetByTokenHashAsync(presentedHash, cancellationToken).ConfigureAwait(false);
-        if (existing is null) return null;
-
-        var claims = await _claimsResolver.ResolveClaimsAsync(existing.UserId, cancellationToken).ConfigureAwait(false);
-        return await RotateAsync(presentedRefreshToken, claims, cancellationToken).ConfigureAwait(false);
+        var result = await RotateWithOutcomeAsync(presentedRefreshToken, cancellationToken).ConfigureAwait(false);
+        return result.Tokens;
     }
 
     /// <summary>
     /// Rotates the presented refresh token, embedding <paramref name="claims"/>
     /// into the new access token. Returns <c>null</c> when the presented token
-    /// is unknown, expired, or already revoked (in which case the rotation
-    /// chain is also revoked if <see cref="RefreshTokenOptions.RevokeChainOnReuse"/> is on).
+    /// is unknown, expired, already revoked, or lost a concurrent rotation race — use
+    /// <see cref="RotateWithOutcomeAsync(string, IEnumerable{Claim}, CancellationToken)"/>
+    /// to tell those cases apart.
     /// </summary>
     public async Task<TokenPair?> RotateAsync(string presentedRefreshToken, IEnumerable<Claim> claims, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(presentedRefreshToken)) return null;
+        var result = await RotateWithOutcomeAsync(presentedRefreshToken, claims, cancellationToken).ConfigureAwait(false);
+        return result.Tokens;
+    }
+
+    /// <summary>
+    /// Outcome-aware variant of <see cref="RotateAsync(string, CancellationToken)"/>: asks the
+    /// registered <see cref="IRefreshClaimsResolver"/> for the claim set to embed in the new
+    /// access token. Use this overload when the caller does not already have a claims list to hand.
+    /// </summary>
+    public async Task<RefreshRotationResult> RotateWithOutcomeAsync(string presentedRefreshToken, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(presentedRefreshToken)) return RefreshRotationResult.Invalid;
+        var presentedHash = TokenHasher.HashRefreshToken(presentedRefreshToken);
+        var existing = await _store.GetByTokenHashAsync(presentedHash, cancellationToken).ConfigureAwait(false);
+        if (existing is null) return RefreshRotationResult.Invalid;
+
+        var claims = await _claimsResolver.ResolveClaimsAsync(existing.UserId, cancellationToken).ConfigureAwait(false);
+        return await RotateWithOutcomeAsync(presentedRefreshToken, claims, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Rotates the presented refresh token, embedding <paramref name="claims"/> into the new
+    /// access token, and reports WHY when it could not: <see cref="RefreshOutcome.Invalid"/>
+    /// (unknown token, or a lost same-instant rotation race), <see cref="RefreshOutcome.Expired"/>
+    /// (found, never revoked, but past its lifetime), or <see cref="RefreshOutcome.ReusedFamilyRevoked"/>
+    /// (a distinct, completed prior operation already used/revoked this exact token — the stolen-token
+    /// signal — and the whole family, including whatever it was rotated into, has been revoked
+    /// when <see cref="RefreshTokenOptions.RevokeChainOnReuse"/> is on).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Race handling is deliberately asymmetric. Two concurrent presentations of the SAME still-valid
+    /// token race on <see cref="IRefreshTokenStore.RevokeAsync"/>'s compare-and-swap: exactly one wins
+    /// and mints a successor, and the loser is reported as <see cref="RefreshOutcome.Invalid"/> — a safe
+    /// reject that does NOT burn the family, so the winner's brand-new session survives. Only a token
+    /// whose <c>RevokedAt</c> was ALREADY set by a separate, completed prior rotation (found on lookup,
+    /// before any CAS attempt) is treated as a genuine replay and burns the family.
+    /// </para>
+    /// <para>
+    /// This diverges from a stricter "any lost race is reuse" policy: a same-instant double-fire (e.g. a
+    /// flaky-network client retry) is far more often benign than an attacker probing the rotation window,
+    /// and nuking the winner's fresh session on every such collision is a worse default trade-off than
+    /// asking the loser alone to re-authenticate with its now-superseded token.
+    /// </para>
+    /// </remarks>
+    public async Task<RefreshRotationResult> RotateWithOutcomeAsync(string presentedRefreshToken, IEnumerable<Claim> claims, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(presentedRefreshToken)) return RefreshRotationResult.Invalid;
         if (claims is null) throw new ArgumentNullException(nameof(claims));
 
         var presentedHash = TokenHasher.HashRefreshToken(presentedRefreshToken);
         var existing = await _store.GetByTokenHashAsync(presentedHash, cancellationToken).ConfigureAwait(false);
-        if (existing is null) return null;
+        if (existing is null) return RefreshRotationResult.Invalid;
+
+        if (existing.RevokedAt is not null)
+        {
+            // Genuine replay: a distinct, already-completed prior operation revoked this row.
+            // Presenting it again proves knowledge of a spent token — burn the whole family.
+            await ReportReuseAsync(existing, cancellationToken).ConfigureAwait(false);
+            return RefreshRotationResult.ReusedFamilyRevoked;
+        }
 
         if (!existing.IsActive)
         {
-            // Replay attack candidate: presenter showed a token that was already revoked or expired.
-            var chainLength = 0;
-            if (_options.RefreshTokens.RevokeChainOnReuse)
-                chainLength = await RevokeChainAsync(existing, cancellationToken).ConfigureAwait(false);
-
-            AuthDiagnostics.RefreshReuseDetectedTotal.Add(1);
-            await _audit.LogAsync(new RefreshReuseDetectedEvent(existing.UserId, existing.TokenHash, chainLength, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
-            return null;
+            // Never revoked, but its lifetime passed — an ordinary stale token, not a theft signal.
+            return RefreshRotationResult.Expired;
         }
 
         var raw = TokenHasher.NewRawToken();
@@ -141,15 +182,19 @@ public sealed class RefreshTokenService
         var claimed = await _store.RevokeAsync(existing.Id, newHash, cancellationToken).ConfigureAwait(false);
         if (!claimed)
         {
+            // Lost the race to a concurrent rotation of the same token — see the remarks
+            // above for why this is a safe reject rather than a family burn.
             AuthDiagnostics.RefreshReuseDetectedTotal.Add(1);
             await _audit.LogAsync(new RefreshReuseDetectedEvent(existing.UserId, existing.TokenHash, 0, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
-            return null;
+            return RefreshRotationResult.Invalid;
         }
 
         var newEntity = new RefreshToken
         {
             UserId = existing.UserId,
             TokenHash = newHash,
+            // Rotation stays in the same family as its predecessor.
+            FamilyId = existing.FamilyId,
             CreatedAt = DateTimeOffset.UtcNow,
             ExpiresAt = expiresAt,
             // Preserve device attribution across rotations: a rotated token still
@@ -165,7 +210,7 @@ public sealed class RefreshTokenService
         AuthDiagnostics.TokensIssuedTotal.Add(1);
         await _audit.LogAsync(new TokenRefreshedEvent(existing.UserId, existing.TokenHash, newHash, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
 
-        return new TokenPair(access, raw, expiresAt);
+        return RefreshRotationResult.Success(new TokenPair(access, raw, expiresAt));
     }
 
     /// <summary>Revokes <paramref name="presentedRefreshToken"/>. No-op when the token is unknown.</summary>
@@ -178,17 +223,20 @@ public sealed class RefreshTokenService
         await _store.RevokeAsync(existing.Id, null, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<int> RevokeChainAsync(RefreshToken start, CancellationToken cancellationToken)
+    /// <summary>Revokes every active token issued to <paramref name="userId"/>. Used by logout-everywhere / password-change flows.</summary>
+    public Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default)
     {
-        var current = start;
-        var safety = 0;
-        while (current is not null && safety < MaxChainWalkDepth)
-        {
-            await _store.RevokeAsync(current.Id, current.ReplacedByTokenHash, cancellationToken).ConfigureAwait(false);
-            safety++;
-            if (string.IsNullOrEmpty(current.ReplacedByTokenHash)) break;
-            current = await _store.GetByTokenHashAsync(current.ReplacedByTokenHash!, cancellationToken).ConfigureAwait(false);
-        }
-        return safety;
+        if (string.IsNullOrEmpty(userId)) return Task.CompletedTask;
+        return _store.RevokeAllForUserAsync(userId, cancellationToken);
+    }
+
+    private async Task ReportReuseAsync(RefreshToken existing, CancellationToken cancellationToken)
+    {
+        var revokedCount = 0;
+        if (_options.RefreshTokens.RevokeChainOnReuse)
+            revokedCount = await _store.RevokeFamilyAsync(existing.FamilyId, cancellationToken).ConfigureAwait(false);
+
+        AuthDiagnostics.RefreshReuseDetectedTotal.Add(1);
+        await _audit.LogAsync(new RefreshReuseDetectedEvent(existing.UserId, existing.TokenHash, revokedCount, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
     }
 }

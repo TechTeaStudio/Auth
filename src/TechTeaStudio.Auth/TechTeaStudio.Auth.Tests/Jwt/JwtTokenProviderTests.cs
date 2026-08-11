@@ -142,4 +142,97 @@ public class JwtTokenProviderTests
         FluentActions.Invoking(() => provider.CreateToken("u", Array.Empty<Claim>(), TimeSpan.Zero))
             .Should().Throw<ArgumentOutOfRangeException>();
     }
+
+    [Fact]
+    public void CreateToken_with_descriptor_overrides_audience_and_issuer()
+    {
+        var provider = new JwtTokenProvider(TestAuthOptions.Wrap());
+        var token = provider.CreateToken(
+            "user-1",
+            Array.Empty<Claim>(),
+            new TokenDescriptor { Audience = "other-aud", Issuer = "other-iss", Lifetime = TimeSpan.FromMinutes(5) });
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+        jwt.Audiences.Should().ContainSingle().Which.Should().Be("other-aud");
+        jwt.Issuer.Should().Be("other-iss");
+    }
+
+    [Fact]
+    public void CreateToken_with_descriptor_falls_back_to_configured_audience_and_issuer_when_null()
+    {
+        var opts = TestAuthOptions.Create();
+        var provider = new JwtTokenProvider(opts.ToMonitor());
+        var token = provider.CreateToken("user-1", Array.Empty<Claim>(), new TokenDescriptor { Lifetime = TimeSpan.FromMinutes(5) });
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+        jwt.Audiences.Should().ContainSingle().Which.Should().Be(opts.Jwt.Audience);
+        jwt.Issuer.Should().Be(opts.Jwt.Issuer);
+    }
+
+    [Fact]
+    public void CreateToken_with_descriptor_falls_back_to_configured_lifetime_when_null()
+    {
+        var opts = TestAuthOptions.Create();
+        opts.Jwt.TokenLifetime = TimeSpan.FromMinutes(42);
+        var provider = new JwtTokenProvider(opts.ToMonitor());
+        var token = provider.CreateToken("user-1", Array.Empty<Claim>(), new TokenDescriptor());
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+        (jwt.ValidTo - jwt.ValidFrom).Should().BeCloseTo(TimeSpan.FromMinutes(42), TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void CreateToken_with_descriptor_still_prepends_sub_and_drops_caller_supplied_sub()
+    {
+        var provider = new JwtTokenProvider(TestAuthOptions.Wrap());
+        var token = provider.CreateToken(
+            "user-1",
+            new[] { new Claim(AuthClaims.Subject, "attacker") },
+            new TokenDescriptor { Audience = "other-aud" });
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+        var subClaims = jwt.Claims.Where(c => c.Type == AuthClaims.Subject).ToList();
+        subClaims.Should().ContainSingle();
+        subClaims[0].Value.Should().Be("user-1");
+    }
+
+    [Fact]
+    public void CreateToken_with_descriptor_round_trips_through_ValidateToken_when_audience_matches_configured()
+    {
+        var provider = new JwtTokenProvider(TestAuthOptions.Wrap());
+        var token = provider.CreateToken("user-1", Array.Empty<Claim>(), new TokenDescriptor());
+        provider.ValidateToken(token).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void CreateToken_with_descriptor_rejects_invalid_arguments()
+    {
+        var provider = new JwtTokenProvider(TestAuthOptions.Wrap());
+        FluentActions.Invoking(() => provider.CreateToken("", Array.Empty<Claim>(), new TokenDescriptor()))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => provider.CreateToken("u", Array.Empty<Claim>(), (TokenDescriptor)null!))
+            .Should().Throw<ArgumentNullException>();
+        FluentActions.Invoking(() => provider.CreateToken("u", Array.Empty<Claim>(), new TokenDescriptor { Lifetime = TimeSpan.Zero }))
+            .Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void CreateToken_TimeSpan_overload_and_descriptor_overload_produce_equivalent_tokens()
+    {
+        var opts = TestAuthOptions.Create();
+        var provider = new JwtTokenProvider(opts.ToMonitor());
+
+        var claims = new[] { new Claim(AuthClaims.Email, "u@x") };
+        var viaTimeSpan = provider.CreateToken("user-1", claims, TimeSpan.FromMinutes(5));
+        var viaDescriptor = provider.CreateToken("user-1", claims, new TokenDescriptor { Lifetime = TimeSpan.FromMinutes(5) });
+
+        var handler = new JwtSecurityTokenHandler();
+        var jwtA = handler.ReadJwtToken(viaTimeSpan);
+        var jwtB = handler.ReadJwtToken(viaDescriptor);
+
+        jwtA.Audiences.Should().BeEquivalentTo(jwtB.Audiences);
+        jwtA.Issuer.Should().Be(jwtB.Issuer);
+        jwtA.Claims.Select(c => c.Type).Where(t => t != AuthClaims.JwtId).Should()
+            .BeEquivalentTo(jwtB.Claims.Select(c => c.Type).Where(t => t != AuthClaims.JwtId));
+    }
 }

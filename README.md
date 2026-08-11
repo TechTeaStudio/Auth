@@ -503,7 +503,7 @@ builder.Services.AddTechTeaStudioAuth(builder.Configuration)
 | Password hashing | PBKDF2-SHA256, 600 000 iterations, 16-byte salt | (algorithm version is fixed; iteration count is fixed in 0.x) |
 | Access token lifetime | 30 minutes | `AuthOptions.Jwt.TokenLifetime` |
 | Refresh token lifetime | 7 days | `AuthOptions.RefreshTokens.Lifetime` |
-| Refresh token reuse | Single-use, rotated; replay revokes the chain | `AuthOptions.RefreshTokens.RevokeChainOnReuse` |
+| Refresh token reuse | Single-use, rotated; every login mints a `FamilyId`, rotation preserves it, and replaying a used token revokes the whole family in O(1) (`RefreshOutcome.ReusedFamilyRevoked`; naturally expired tokens answer `Expired` with no burn) | `AuthOptions.RefreshTokens.RevokeChainOnReuse` |
 | Signing algorithm | HS256 (RS256, ES256 also supported via `Jwt.Signing.Keys`) | `AuthOptions.Jwt.Signing` |
 | Clock skew | 5 minutes | `AuthOptions.Jwt.ClockSkew` |
 | Account lockout | 5 failed attempts → 15-minute lockout | `AuthOptions.Lockout.MaxFailedAttempts`, `AuthOptions.Lockout.Duration` |

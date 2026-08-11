@@ -40,6 +40,24 @@ public sealed class JwtTokenProvider : ITokenProvider
         if (claims is null) throw new ArgumentNullException(nameof(claims));
         if (lifetime <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(lifetime), "lifetime must be positive.");
 
+        return CreateTokenCore(userId, claims, lifetime, audience: null, issuer: null, notBefore: null);
+    }
+
+    /// <inheritdoc />
+    public string CreateToken(string userId, IEnumerable<Claim> claims, TokenDescriptor descriptor)
+    {
+        if (string.IsNullOrEmpty(userId)) throw new ArgumentException("userId is required.", nameof(userId));
+        if (claims is null) throw new ArgumentNullException(nameof(claims));
+        if (descriptor is null) throw new ArgumentNullException(nameof(descriptor));
+
+        var lifetime = descriptor.Lifetime ?? _monitor.CurrentValue.Jwt.TokenLifetime;
+        if (lifetime <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(descriptor), "descriptor.Lifetime must be positive.");
+
+        return CreateTokenCore(userId, claims, lifetime, descriptor.Audience, descriptor.Issuer, descriptor.NotBefore);
+    }
+
+    private string CreateTokenCore(string userId, IEnumerable<Claim> claims, TimeSpan lifetime, string? audience, string? issuer, DateTimeOffset? notBefore)
+    {
         var options = _monitor.CurrentValue;
         var active = SigningKeyResolver.ResolveActive(options);
         var creds = SigningKeyResolver.BuildSigningCredentials(active);
@@ -66,18 +84,18 @@ public sealed class JwtTokenProvider : ITokenProvider
             allClaims.Add(c);
         }
 
-        var descriptor = new SecurityTokenDescriptor
+        var tokenDescriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(allClaims),
-            NotBefore = now,
+            NotBefore = notBefore?.UtcDateTime ?? now,
             IssuedAt = now,
             Expires = now.Add(lifetime),
-            Issuer = options.Jwt.Issuer,
-            Audience = options.Jwt.Audience,
+            Issuer = issuer ?? options.Jwt.Issuer,
+            Audience = audience ?? options.Jwt.Audience,
             SigningCredentials = creds,
         };
 
-        var token = _handler.CreateToken(descriptor);
+        var token = _handler.CreateToken(tokenDescriptor);
         return _handler.WriteToken(token);
     }
 

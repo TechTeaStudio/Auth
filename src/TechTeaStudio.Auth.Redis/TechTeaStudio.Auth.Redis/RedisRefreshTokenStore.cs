@@ -9,6 +9,7 @@ namespace TechTeaStudio.Auth.Redis;
 /// <list type="bullet">
 ///   <item><c>tts:auth:refresh:hash:&lt;tokenHash&gt;</c> = JSON-encoded <see cref="RefreshToken"/>. TTL = expiresAt - now.</item>
 ///   <item><c>tts:auth:refresh:user:&lt;userId&gt;</c> = SET of token hashes (so per-user reads are O(N) on N active tokens, not O(all)).</item>
+///   <item><c>tts:auth:refresh:family:&lt;familyId&gt;</c> = SET of token hashes in that rotation family (so <see cref="RevokeFamilyAsync"/> is O(N) on N tokens in the family, not a full keyspace SCAN).</item>
 /// </list>
 /// Redis TTL handles expiry, so <see cref="CleanupExpiredAsync"/> is mostly a no-op
 /// (it only prunes user-set membership entries left behind by manual TTLs).
@@ -29,6 +30,7 @@ public sealed class RedisRefreshTokenStore : IRefreshTokenStore
 
     private string HashKey(string tokenHash) => $"{_prefix}:hash:{tokenHash}";
     private string UserKey(string userId) => $"{_prefix}:user:{userId}";
+    private string FamilyKey(Guid familyId) => $"{_prefix}:family:{familyId:N}";
 
     public async Task<RefreshToken?> GetByTokenHashAsync(string tokenHash, CancellationToken cancellationToken = default)
     {
@@ -71,6 +73,7 @@ public sealed class RedisRefreshTokenStore : IRefreshTokenStore
         if (!ok)
             throw new InvalidOperationException($"Refresh token with hash '{token.TokenHash}' already exists.");
         await _db.SetAddAsync(UserKey(token.UserId), token.TokenHash).ConfigureAwait(false);
+        await _db.SetAddAsync(FamilyKey(token.FamilyId), token.TokenHash).ConfigureAwait(false);
     }
 
     /// <remarks>
@@ -127,6 +130,37 @@ public sealed class RedisRefreshTokenStore : IRefreshTokenStore
             if (ttl <= TimeSpan.Zero) ttl = TimeSpan.FromMinutes(1);
             await _db.StringSetAsync(key, JsonSerializer.Serialize(updated, Json), ttl).ConfigureAwait(false);
         }
+    }
+
+    /// <remarks>
+    /// Read-then-write over the family's SET, same non-atomic shape (and same audit-flagged
+    /// gap) as <see cref="RevokeAsync"/> / <see cref="RevokeAllForUserAsync"/> — not a single
+    /// atomic operation. A concurrent revoke of a DIFFERENT row in the same family races only
+    /// with itself (each row is an independent GET/SET pair), so the only hazard is the same
+    /// one every other Redis method here already carries.
+    /// </remarks>
+    // TODO: audit finding — make atomic via Lua (read-then-write is racy under concurrent revokes)
+    public async Task<int> RevokeFamilyAsync(Guid familyId, CancellationToken cancellationToken = default)
+    {
+        var hashes = await _db.SetMembersAsync(FamilyKey(familyId)).ConfigureAwait(false);
+        var now = DateTimeOffset.UtcNow;
+        var revoked = 0;
+        foreach (var h in hashes)
+        {
+            var key = HashKey(h!);
+            var raw = await _db.StringGetAsync(key).ConfigureAwait(false);
+            if (!raw.HasValue) { await _db.SetRemoveAsync(FamilyKey(familyId), h, CommandFlags.FireAndForget).ConfigureAwait(false); continue; }
+
+            var t = JsonSerializer.Deserialize<RefreshToken>((string)raw!, Json);
+            if (t is null || t.RevokedAt is not null) continue;
+
+            var updated = t with { RevokedAt = now };
+            var ttl = updated.ExpiresAt - DateTimeOffset.UtcNow;
+            if (ttl <= TimeSpan.Zero) ttl = TimeSpan.FromMinutes(1);
+            await _db.StringSetAsync(key, JsonSerializer.Serialize(updated, Json), ttl).ConfigureAwait(false);
+            revoked++;
+        }
+        return revoked;
     }
 
     public Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)

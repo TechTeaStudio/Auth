@@ -53,8 +53,10 @@ public sealed class RefreshTokenOptions
     public TimeSpan Lifetime { get; set; } = TimeSpan.FromDays(7);
 
     /// <summary>
-    /// When <c>true</c> (default), presenting an already-revoked refresh token revokes
-    /// every successor in its rotation chain — a stolen-and-replayed token kills the whole session.
+    /// When <c>true</c> (default), presenting an already-used/revoked refresh token revokes
+    /// every token in its rotation family — a stolen-and-replayed token kills the whole session.
+    /// Does not apply to a lost same-instant rotation race (see the remarks on
+    /// <see cref="RefreshTokens.RefreshTokenService.RotateWithOutcomeAsync(string, System.Collections.Generic.IEnumerable{System.Security.Claims.Claim}, System.Threading.CancellationToken)"/>).
     /// </summary>
     public bool RevokeChainOnReuse { get; set; } = true;
 

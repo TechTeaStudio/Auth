@@ -3,6 +3,23 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-08-12
+
+Driven by a real consumer: Chronos's /api/v1 mobile surface needed per-call token audiences and stolen-refresh-token detection, and had to build both outside the library. Folded back in as first-class features. All sibling packages version-aligned.
+
+### Added
+
+- **`TokenDescriptor` + `ITokenProvider.CreateToken(userId, claims, TokenDescriptor)`** - per-call `Audience`/`Issuer`/`Lifetime`/`NotBefore` overrides; null members fall back to configured `AuthOptions`. Existing overloads byte-compatible; the sub/jti/iat invariant and reserved-claim stripping apply identically on the new path. Validating a per-call audience is the consumer's job via its own JwtBearer configuration - `ITokenReader` stays pinned to the configured audience (documented).
+- **Refresh-token families with reuse detection.** `RefreshToken.FamilyId`: a login mints a family, rotation preserves it, and presenting an already-revoked token burns the ENTIRE family in O(1) via the new `IRefreshTokenStore.RevokeFamilyAsync` (implemented in InMemory, EFCore and Redis stores) - replacing the old N-hop `ReplacedByTokenHash` chain walk and `MaxChainWalkDepth`, now removed.
+- **`RefreshOutcome` enum + `RotateWithOutcomeAsync`** - `Success` / `Invalid` / `Expired` / `ReusedFamilyRevoked` are now distinguishable; naturally-expired-but-never-revoked tokens answer `Expired` with no family burn (previously folded into the replay branch). The `TokenPair?`-returning `RotateAsync` overloads forward to the new path and behave as before for existing callers.
+- **`RefreshTokenService.RevokeAllForUserAsync(userId)`** - service-level wrapper for password-change / logout-everywhere flows (previously store-only).
+- **EFCore `SchemaMigrations`: idempotent `FamilyId` column + index helpers** for Postgres, SqlServer and Sqlite (Sqlite uses a two-statement ALTER+UPDATE because its ADD COLUMN rejects non-constant defaults).
+
+### Changed
+
+- A lost same-instant CAS race during rotation (two concurrent presentations of the SAME still-valid token) reports `Invalid` for the loser and does NOT burn the family - the winner's fresh session survives. Deliberate safer-by-default choice, documented on `RotateWithOutcomeAsync`; consumers wanting stricter treat-lost-race-as-reuse semantics can layer it on top.
+- Breaking for hand-written `IRefreshTokenStore` implementations: the interface gained `RevokeFamilyAsync` (minor-version bump per the pre-1.0 policy).
+
 ## [0.9.0] — 2026-07-14
 
 Critical production fix. A captive `RefreshTokenService` singleton plus load-then-save races in `EfCoreRefreshTokenStore` caused intermittent `DbUpdateConcurrencyException` on login/refresh/revoke under real traffic, and refused to start at all in Development when a consumer wired up a SCOPED `IRefreshTokenStore` (the documented `EfCoreRefreshTokenStore<TContext>` pattern).

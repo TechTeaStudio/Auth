@@ -135,6 +135,25 @@ public class EfCoreRefreshTokenStore<TContext> : IRefreshTokenStore
             .ConfigureAwait(false);
     }
 
+    /// <remarks>
+    /// Set-based <c>ExecuteUpdateAsync</c>, same shape as <see cref="RevokeAllForUserAsync"/> but
+    /// scoped by <see cref="RefreshTokenEntity.FamilyId"/> — the rows-affected count is exact and
+    /// atomic per row (each row's own guarded UPDATE), which is all stolen-token detection needs:
+    /// every currently-active row in the family, including the newest one, flips to revoked in a
+    /// single statement.
+    /// </remarks>
+    public async Task<int> RevokeFamilyAsync(Guid familyId, CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var stamp = Guid.NewGuid().ToString();
+
+        return await _set.Where(t => t.FamilyId == familyId && t.RevokedAt == null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(t => t.RevokedAt, now)
+                .SetProperty(t => t.ConcurrencyStamp, stamp), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     /// <remarks>Set-based <c>ExecuteDeleteAsync</c> — see <see cref="RevokeAsync"/>.</remarks>
     public async Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default) =>
         await _set.Where(t => t.ExpiresAt <= cutoff)
@@ -228,6 +247,33 @@ public class EfCoreRefreshTokenStore<TContext> : IRefreshTokenStore
             {
                 await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 return;
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < MaxConcurrencyRetries)
+            {
+                await ReconcileConflictsAsync(ex, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <remarks>Load-then-save with bounded concurrency-conflict retry — see <see cref="RevokeAsync"/>.</remarks>
+    public async Task<int> RevokeFamilyAsync(Guid familyId, CancellationToken cancellationToken = default)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var active = await _set.Where(t => t.FamilyId == familyId && t.RevokedAt == null).ToListAsync(cancellationToken).ConfigureAwait(false);
+            if (active.Count == 0) return 0;
+
+            var now = DateTimeOffset.UtcNow;
+            foreach (var e in active)
+            {
+                e.RevokedAt = now;
+                e.ConcurrencyStamp = Guid.NewGuid().ToString();
+            }
+
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                return active.Count;
             }
             catch (DbUpdateConcurrencyException ex) when (attempt < MaxConcurrencyRetries)
             {

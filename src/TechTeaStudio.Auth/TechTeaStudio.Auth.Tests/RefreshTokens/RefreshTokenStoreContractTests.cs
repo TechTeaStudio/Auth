@@ -258,6 +258,71 @@ public abstract class RefreshTokenStoreContractTests
     }
 
     [Fact]
+    public async Task CreateAsync_roundtrips_family_id()
+    {
+        var store = CreateStore();
+        var familyId = Guid.NewGuid();
+        var token = NewToken() with { FamilyId = familyId };
+        await store.CreateAsync(token);
+
+        var fetched = await store.GetByTokenHashAsync(token.TokenHash);
+        fetched!.FamilyId.Should().Be(familyId);
+    }
+
+    [Fact]
+    public async Task RevokeFamilyAsync_revokes_every_active_token_in_the_family()
+    {
+        var store = CreateStore();
+        var familyId = Guid.NewGuid();
+        var t1 = NewToken("alice") with { FamilyId = familyId };
+        var t2 = NewToken("alice") with { FamilyId = familyId };
+        await store.CreateAsync(t1);
+        await store.CreateAsync(t2);
+
+        var revokedCount = await store.RevokeFamilyAsync(familyId);
+
+        revokedCount.Should().Be(2);
+        (await store.GetByTokenHashAsync(t1.TokenHash))!.RevokedAt.Should().NotBeNull();
+        (await store.GetByTokenHashAsync(t2.TokenHash))!.RevokedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task RevokeFamilyAsync_only_affects_that_family()
+    {
+        var store = CreateStore();
+        var familyA = Guid.NewGuid();
+        var familyB = Guid.NewGuid();
+        var tokenA = NewToken("alice") with { FamilyId = familyA };
+        var tokenB = NewToken("alice") with { FamilyId = familyB };
+        await store.CreateAsync(tokenA);
+        await store.CreateAsync(tokenB);
+
+        await store.RevokeFamilyAsync(familyA);
+
+        (await store.GetByTokenHashAsync(tokenA.TokenHash))!.RevokedAt.Should().NotBeNull();
+        (await store.GetByTokenHashAsync(tokenB.TokenHash))!.RevokedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RevokeFamilyAsync_does_not_revoke_already_revoked_rows_again()
+    {
+        var store = CreateStore();
+        var familyId = Guid.NewGuid();
+        var token = NewToken("alice") with { FamilyId = familyId };
+        await store.CreateAsync(token);
+        await store.RevokeAsync(token.Id);
+
+        (await store.RevokeFamilyAsync(familyId)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task RevokeFamilyAsync_on_unknown_family_returns_zero()
+    {
+        var store = CreateStore();
+        (await store.RevokeFamilyAsync(Guid.NewGuid())).Should().Be(0);
+    }
+
+    [Fact]
     public async Task DeleteAllForUserAsync_hard_deletes_user_rows()
     {
         var store = CreateStore();
