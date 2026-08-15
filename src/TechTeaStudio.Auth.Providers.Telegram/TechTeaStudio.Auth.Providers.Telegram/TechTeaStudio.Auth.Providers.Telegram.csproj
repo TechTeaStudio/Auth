@@ -10,16 +10,16 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
-    <PackageId>TechTeaStudio.Auth.OAuth.Google</PackageId>
+    <PackageId>TechTeaStudio.Auth.Providers.Telegram</PackageId>
     <Version>0.11.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
-    <Description>Google Sign-In provider for TechTeaStudio.Auth.OAuth. Validates Google ID tokens (mobile / web / desktop client IDs) via Google.Apis.Auth and integrates with the ExternalLoginService orchestrator.</Description>
+    <Description>Telegram Login Widget sign-in for TechTeaStudio.Auth. Not OAuth: Telegram signs the profile payload with an HMAC derived from the bot token, so this package is a signature validator behind the same IExternalAuthProvider contract.</Description>
     <RepositoryUrl>https://github.com/TechTeaStudio/Auth</RepositoryUrl>
     <PackageProjectUrl>https://github.com/TechTeaStudio/Auth</PackageProjectUrl>
     <PackageIcon>icon.png</PackageIcon>
     <Copyright>Copyright © Tech Tea Studio 2026</Copyright>
-    <PackageTags>auth;oauth;oidc;google;sign-in;external-login;TechTeaStudio</PackageTags>
+    <PackageTags>auth;telegram;login-widget;sign-in;external-login;TechTeaStudio</PackageTags>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -29,8 +29,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.Abstractions\TechTeaStudio.Auth.OAuth.Abstractions\TechTeaStudio.Auth.OAuth.Abstractions.csproj" />
-    <PackageReference Include="Google.Apis.Auth" Version="1.69.0" />
   </ItemGroup>
+
+  <!-- No HttpClient: validating a Telegram login is pure local crypto against the bot token.
+       Nothing here ever calls Telegram. -->
 
   <ItemGroup>
     <None Include="icon.png" Pack="true" PackagePath="\" />

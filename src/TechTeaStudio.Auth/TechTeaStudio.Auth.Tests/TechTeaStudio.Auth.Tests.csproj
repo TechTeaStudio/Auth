@@ -2,12 +2,12 @@
 
   <PropertyGroup>
     <!--
-      net10.0 omitted: EFCore tests pull Microsoft.EntityFrameworkCore.InMemory 10.0.0
-      which is incompatible with the lib's EF Core 9.0 references. net8/net9 give us
-      sufficient coverage — the same source compiles for both, and runtime behaviour
-      on net10 is verified by the smoke-test on the Hyperion side.
+      net10.0 joined in 0.11.0. It was excluded because EFCore.InMemory 10.x could not sit on
+      top of a library compiled against EF Core 9.0; now that both EFCore packages have a real
+      net10.0 build against EF Core 10, the mismatch is gone and net10 is the framework the
+      consumers actually run on.
     -->
-    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
@@ -31,6 +31,10 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
   </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.7" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.7" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\TechTeaStudio.Auth\TechTeaStudio.Auth.csproj" />
@@ -40,6 +44,8 @@
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.EFCore\TechTeaStudio.Auth.OAuth.EFCore\TechTeaStudio.Auth.OAuth.EFCore.csproj" />
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.Google\TechTeaStudio.Auth.OAuth.Google\TechTeaStudio.Auth.OAuth.Google.csproj" />
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.GitHub\TechTeaStudio.Auth.OAuth.GitHub\TechTeaStudio.Auth.OAuth.GitHub.csproj" />
+    <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.Microsoft\TechTeaStudio.Auth.OAuth.Microsoft\TechTeaStudio.Auth.OAuth.Microsoft.csproj" />
+    <ProjectReference Include="..\..\TechTeaStudio.Auth.Providers.Telegram\TechTeaStudio.Auth.Providers.Telegram\TechTeaStudio.Auth.Providers.Telegram.csproj" />
   </ItemGroup>
 
 </Project>

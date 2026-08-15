@@ -52,6 +52,37 @@ public class ExternalLoginServiceTests
     }
 
     [Fact]
+    public async Task SignIn_provider_name_is_case_insensitive()
+    {
+        // 0.11.0. The provider package spells its own name ("Google"); the consumer's route or
+        // scheme constant is lowercase ("/auth/google"). An ordinal lookup made that mismatch
+        // indistinguishable from a genuinely unregistered provider, and every sign-in failed with
+        // unknown_provider no matter how correct the credentials were.
+        var (svc, stub, _, _, _, _) = NewService();
+        stub.Responses["good-token"] = GoogleInfo();
+
+        var r = await svc.SignInAsync("google", "good-token");
+
+        r.Status.Should().Be(ExternalSignInStatus.RequiresRegistration);
+        r.Error.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Link_is_stored_under_the_providers_own_spelling_not_the_callers()
+    {
+        // The lookup forgives case; the stored row must not. One spelling in the table is what
+        // keeps a later FindAsync from missing a link that exists.
+        var (svc, stub, _, store, _, _) = NewService();
+        stub.Responses["good-token"] = GoogleInfo();
+
+        var step1 = await svc.SignInAsync("gOoGlE", "good-token");
+        var step2 = await svc.CompleteRegistrationAsync(step1.ContinuationToken!, "newcomer");
+        step2.Status.Should().Be(ExternalSignInStatus.Authenticated);
+
+        (await store.FindAsync("Google", "g-1")).Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task SignIn_invalid_credential_fails()
     {
         var (svc, _, _, _, _, _) = NewService();

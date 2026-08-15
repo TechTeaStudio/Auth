@@ -44,6 +44,30 @@ public static class OAuthAuthBuilderExtensions
     }
 
     /// <summary>
+    /// Replaces the default <see cref="IExternalLoginStore"/> with one the consumer
+    /// constructs itself.
+    /// <para>Needed whenever the store type has more than one constructor that DI could
+    /// satisfy. <c>EfCoreExternalLoginStore&lt;TContext&gt;</c> is exactly that case: it accepts
+    /// either a <c>TContext</c> or an <c>IDbContextFactory&lt;TContext&gt;</c>, and
+    /// <c>AddDbContextFactory</c> registers BOTH — so the generic overload above throws
+    /// "The following constructors are ambiguous" at the first resolve, which in a web app means
+    /// a crash on the first request that touches sign-in. Naming the constructor here removes the
+    /// guess.</para>
+    /// </summary>
+    public static IAuthBuilder UseExternalLoginStore(
+        this IAuthBuilder builder,
+        Func<IServiceProvider, IExternalLoginStore> factory,
+        ServiceLifetime lifetime = ServiceLifetime.Scoped)
+    {
+        if (builder is null) throw new ArgumentNullException(nameof(builder));
+        if (factory is null) throw new ArgumentNullException(nameof(factory));
+        builder.AddTechTeaStudioOAuth();
+        builder.Services.RemoveAll<IExternalLoginStore>();
+        builder.Services.Add(ServiceDescriptor.Describe(typeof(IExternalLoginStore), factory, lifetime));
+        return builder;
+    }
+
+    /// <summary>
     /// Registers the consumer's bridge to its own user table. Required for any
     /// OAuth flow — without it, the orchestrator cannot create / look up users.
     /// </summary>

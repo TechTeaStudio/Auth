@@ -1,14 +1,38 @@
 # OAuth — TechTeaStudio.Auth.OAuth.* packages
 
-Provider-agnostic OAuth / OIDC sign-in for `TechTeaStudio.Auth` 0.6+. Three packages:
+Provider-agnostic OAuth / OIDC sign-in for `TechTeaStudio.Auth` 0.6+.
 
 | Package | Purpose |
 |---|---|
 | `TechTeaStudio.Auth.OAuth.Abstractions` | `IExternalAuthProvider`, `IExternalLoginStore`, `IExternalUserBridge`, `ExternalLoginService` (three-outcome orchestrator). |
-| `TechTeaStudio.Auth.OAuth.Google` | Google Sign-In implementation via `Google.Apis.Auth`. |
+| `TechTeaStudio.Auth.OAuth.Google` | Google Sign-In implementation via `Google.Apis.Auth`. Credential is an ID token. |
+| `TechTeaStudio.Auth.OAuth.GitHub` | GitHub OAuth App. Credential is an authorization code. |
+| `TechTeaStudio.Auth.OAuth.Microsoft` | Microsoft Entra ID (Azure AD) v2.0. Credential is an authorization code; the id_token is validated against the tenant JWKS. |
+| `TechTeaStudio.Auth.Providers.Telegram` | Telegram Login Widget. **Not OAuth** - see below. |
 | `TechTeaStudio.Auth.OAuth.EFCore` | EF Core mapping for the external-login table. |
 
-Future siblings (same pattern): `Auth.OAuth.GitHub`, `Auth.OAuth.Apple`, `Auth.OAuth.Microsoft`, …
+Future siblings (same pattern): `Auth.OAuth.Apple`, …
+
+### Providers that are not OAuth
+
+`IExternalAuthProvider` is a credential validator, not an OAuth client: one method turns a raw string
+into an `ExternalLoginInfo`. Anything that can prove an identity fits behind it, which is why the
+Telegram package lives under `Auth.Providers.*` rather than `Auth.OAuth.*`. Telegram has no
+authorization code and no token endpoint - the widget signs the profile with an HMAC keyed by
+`SHA256(bot_token)` and hands it straight to the browser, so validation is local crypto and the
+package never opens a socket.
+
+Two consequences a host must handle:
+
+- **No email, ever.** `ExternalLoginInfo.Email` is null, so every first sign-in returns
+  `RequiresRegistration`. A host that requires an address has to invent one in its
+  `IExternalUserBridge`.
+- **The payload replays until it expires.** There is no nonce and no single-use marker, so
+  `TelegramLoginOptions.MaxAge` (default 5 minutes) is the whole defence. Do not widen it to hours.
+
+```csharp
+authBuilder.AddTelegramLoginProvider();   // binds Auth:Telegram { BotToken, BotUsername, MaxAge }
+```
 
 ## Three-outcome flow
 

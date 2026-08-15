@@ -2,13 +2,15 @@
 
   <PropertyGroup>
     <!--
-      net10.0 deliberately omitted. The package's net9.0 build (compiled
-      against EF Core 9.0.0) is selected for net10 consumers via TFM
-      compatibility, so apps on net10 keep working with either EF Core 9.x
-      OR 10.x at runtime. Pinning EF Core 10.0.0 here would force every
-      net10 consumer onto EF 10 — blocked today by Npgsql.EFCore.PostgreSQL 9.x.
+      net10.0 was omitted until 0.11.0 for one reason: a net10 build pins EF Core 10.0.0, and
+      Npgsql.EntityFrameworkCore.PostgreSQL had no 10.x, so every net10 consumer would have been
+      forced onto an EF version its provider could not match. Npgsql 10.0.0 shipped, the block is
+      gone, and a real net10 build beats borrowing the net9 one through TFM fallback (a net10
+      consumer on EF 10 was resolving an assembly compiled against EF 9). Consumers still on
+      EF Core 9.x under net10 stay on the net9.0 asset only if they pin it; the floor here is
+      10.0.0, not an exact pin, so 10.x patch levels all satisfy it.
     -->
-    <TargetFrameworks>net6.0;net8.0;net9.0</TargetFrameworks>
+    <TargetFrameworks>net6.0;net8.0;net9.0;net10.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
@@ -18,7 +20,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.EFCore</PackageId>
-    <Version>0.10.0</Version>
+    <Version>0.11.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>EF Core implementation of TechTeaStudio.Auth's IRefreshTokenStore. Ship-ready entity, fluent mapping helper, and the store class.</Description>
@@ -51,6 +53,11 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0" />
   </ItemGroup>
 
 

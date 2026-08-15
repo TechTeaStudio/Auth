@@ -41,7 +41,13 @@ public sealed class ExternalLoginService
         IAuthAuditLogger? audit = null)
     {
         if (providers is null) throw new ArgumentNullException(nameof(providers));
-        _providers = providers.ToDictionary(p => p.Name, p => p, StringComparer.Ordinal);
+        // Case-insensitive on purpose (0.11.0). Provider names are spelled by humans in two
+        // places that never see each other: the provider package picks "Google"/"GitHub", and
+        // the consumer's route or scheme constant is usually lowercase ("/auth/google"). An
+        // ordinal lookup turned that mismatch into Failed("unknown_provider") on every single
+        // sign-in, with nothing in the error naming the cause. The stored ExternalLogin.Provider
+        // still carries the provider's own canonical Name, so persisted links stay one spelling.
+        _providers = providers.ToDictionary(p => p.Name, p => p, StringComparer.OrdinalIgnoreCase);
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _users = users ?? throw new ArgumentNullException(nameof(users));
         _refresh = refresh ?? throw new ArgumentNullException(nameof(refresh));
