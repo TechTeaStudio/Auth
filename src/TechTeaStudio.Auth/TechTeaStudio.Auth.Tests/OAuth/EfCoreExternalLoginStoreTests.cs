@@ -164,26 +164,66 @@ public class EfCoreExternalLoginStoreFactoryTests
     }
 
     /// <summary>
-    /// AddDbContextFactory registers a scoped context ALONGSIDE the factory, which makes both
-    /// constructors resolvable and makes the container refuse to pick - at resolve time, so a web
-    /// app discovers it on the first request that touches sign-in rather than at startup. The
-    /// delegate overload of UseExternalLoginStore exists for exactly this; this test is the proof
-    /// that the ambiguity is real and that naming the constructor steps around it.
+    /// AddDbContextFactory registers a scoped context ALONGSIDE the factory. With only the two
+    /// single-argument constructors the container refused to pick one ("constructors are
+    /// ambiguous") - at resolve time, so a host that registered the store by type and upgraded
+    /// met it on the first request that touched sign-in. The two-argument constructor covers both
+    /// parameter sets, which is the one shape the container resolves without guessing.
     /// </summary>
     [Fact]
-    public void Delegate_registration_survives_a_container_holding_both_the_context_and_its_factory()
+    public async Task Registration_by_type_resolves_in_a_container_holding_both_the_context_and_its_factory()
     {
         var services = new ServiceCollection();
-        services.AddDbContextFactory<OAuthTestDbContext>(o => o.UseInMemoryDatabase("ambiguity"));
-
+        services.AddDbContextFactory<OAuthTestDbContext>(o => o.UseInMemoryDatabase("both-registered"));
         services.AddScoped<IExternalLoginStore, EfCoreExternalLoginStore<OAuthTestDbContext>>();
-        using (var ambiguous = services.BuildServiceProvider())
-        {
-            var resolve = () => ambiguous.CreateScope().ServiceProvider.GetRequiredService<IExternalLoginStore>();
-            resolve.Should().Throw<InvalidOperationException>().WithMessage("*ambiguous*");
-        }
 
-        services.RemoveAll<IExternalLoginStore>();
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IExternalLoginStore>();
+
+        store.Should().BeOfType<EfCoreExternalLoginStore<OAuthTestDbContext>>();
+        await store.CreateAsync(new ExternalLogin { UserId = "alice", Provider = "Google", ProviderUserId = "g-a" });
+        (await store.FindAsync("Google", "g-a")).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Registration_by_type_shares_the_scoped_context_when_both_are_registered()
+    {
+        // The tie-breaker keeps what such a host had before the factory constructor existed: the
+        // scoped context, so the store still takes part in the caller's unit of work.
+        var services = new ServiceCollection();
+        var factory = new TestContextFactory("shared-scoped");
+        services.AddSingleton<IDbContextFactory<OAuthTestDbContext>>(factory);
+        services.AddScoped(_ => new OAuthTestDbContext(
+            new DbContextOptionsBuilder<OAuthTestDbContext>().UseInMemoryDatabase("shared-scoped").Options));
+        services.AddScoped<IExternalLoginStore, EfCoreExternalLoginStore<OAuthTestDbContext>>();
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IExternalLoginStore>();
+        store.FindAsync("Google", "nobody").GetAwaiter().GetResult();
+
+        factory.Created.Should().Be(0);
+    }
+
+    [Fact]
+    public void Registration_by_type_still_resolves_with_only_a_context()
+    {
+        var services = new ServiceCollection();
+        services.AddDbContext<OAuthTestDbContext>(o => o.UseInMemoryDatabase("context-only"));
+        services.AddScoped<IExternalLoginStore, EfCoreExternalLoginStore<OAuthTestDbContext>>();
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IExternalLoginStore>()
+            .Should().BeOfType<EfCoreExternalLoginStore<OAuthTestDbContext>>();
+    }
+
+    [Fact]
+    public void Delegate_registration_selects_the_factory_constructor()
+    {
+        var services = new ServiceCollection();
+        services.AddDbContextFactory<OAuthTestDbContext>(o => o.UseInMemoryDatabase("delegate"));
         services.AddScoped<IExternalLoginStore>(sp => new EfCoreExternalLoginStore<OAuthTestDbContext>(
             sp.GetRequiredService<IDbContextFactory<OAuthTestDbContext>>()));
 

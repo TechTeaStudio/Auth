@@ -16,6 +16,12 @@ namespace TechTeaStudio.Auth.OAuth.Microsoft;
 /// <c>{Instance}/{TenantId}/oauth2/v2.0/authorize</c>, Entra bounces back with <c>?code=</c>, and
 /// this provider trades that code for an id_token and validates it.</para>
 ///
+/// <para><b>PKCE.</b> <see cref="IExternalAuthProvider.ValidateAsync"/> carries one string, so a
+/// host that sent a <c>code_challenge</c> on the authorize request passes the code and its
+/// verifier together: build the credential with <see cref="FormatCredential"/>. A bare code keeps
+/// working for hosts that do not use PKCE. <c>state</c> and <c>nonce</c> never reach this class -
+/// checking them is the host's job, on the callback, before it calls sign-in.</para>
+///
 /// <para><b>Why the id_token is validated at all</b> when it arrives over TLS in the response to
 /// our own client-authenticated request: the signature check is what makes this class safe to
 /// reuse for any future flow where the token does NOT come straight from the token endpoint, and
@@ -26,6 +32,10 @@ public sealed class MicrosoftAuthProvider : IExternalAuthProvider
 {
     public const string ProviderName = "Microsoft";
     public string Name => ProviderName;
+
+    /// <summary>The tenant every personal Microsoft account (outlook.com, live.com, …) lives in.
+    /// Its tokens are issued by Microsoft itself, not by a customer-administered directory.</summary>
+    private const string ConsumerTenantId = "9188040d-6c67-4c5b-b112-36a304b66dad";
 
     /// <summary>JWKS per authority, shared across instances because the provider is registered
     /// transient (one per resolve, like the GitHub one) and a per-instance cache would fetch the
@@ -64,7 +74,13 @@ public sealed class MicrosoftAuthProvider : IExternalAuthProvider
 
         try
         {
-            var idToken = await ExchangeCodeAsync(rawCredential, opts, cancellationToken).ConfigureAwait(false);
+            if (!TryReadCredential(rawCredential, out var code, out var codeVerifier))
+            {
+                _logger?.LogInformation("Microsoft credential rejected: neither an authorization code nor a code + code_verifier object");
+                return null;
+            }
+
+            var idToken = await ExchangeCodeAsync(code, codeVerifier, opts, cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrEmpty(idToken)) return null;
 
             var token = await ValidateIdTokenAsync(idToken!, opts, cancellationToken).ConfigureAwait(false);
@@ -88,9 +104,7 @@ public sealed class MicrosoftAuthProvider : IExternalAuthProvider
                 Provider: ProviderName,
                 ProviderUserId: subject!,
                 Email: email,
-                // Entra publishes no email_verified claim. An address that reached us inside a
-                // tenant-signed token is as verified as this provider can state.
-                EmailVerified: !string.IsNullOrEmpty(email),
+                EmailVerified: IsEmailVerified(token, email, opts),
                 DisplayName: ClaimOf(token, "name") ?? ClaimOf(token, "preferred_username"),
                 // Deliberately null: a photo needs a Graph call with User.Read on the access
                 // token, which would make every sign-in pay for an avatar most apps ignore.
@@ -108,11 +122,11 @@ public sealed class MicrosoftAuthProvider : IExternalAuthProvider
     /// answer; the body is logged at debug because it carries Entra's own error code
     /// (<c>invalid_grant</c>, <c>redirect_uri_mismatch</c>, …), which is the only useful clue when
     /// a registration is misconfigured.</summary>
-    private async Task<string?> ExchangeCodeAsync(string code, MicrosoftAuthProviderOptions opts, CancellationToken ct)
+    private async Task<string?> ExchangeCodeAsync(string code, string? codeVerifier, MicrosoftAuthProviderOptions opts, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{Authority(opts)}/oauth2/v2.0/token");
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        req.Content = new FormUrlEncodedContent(new[]
+        var form = new List<KeyValuePair<string, string>>
         {
             new KeyValuePair<string, string>("client_id", opts.ClientId!),
             new KeyValuePair<string, string>("client_secret", opts.ClientSecret!),
@@ -120,7 +134,12 @@ public sealed class MicrosoftAuthProvider : IExternalAuthProvider
             new KeyValuePair<string, string>("grant_type", "authorization_code"),
             new KeyValuePair<string, string>("redirect_uri", opts.RedirectUri!),
             new KeyValuePair<string, string>("scope", opts.Scope),
-        });
+        };
+        // Entra answers invalid_grant when the authorize request carried a code_challenge and the
+        // exchange carries no verifier, so a PKCE host has no way to sign in without this field.
+        if (!string.IsNullOrEmpty(codeVerifier))
+            form.Add(new KeyValuePair<string, string>("code_verifier", codeVerifier!));
+        req.Content = new FormUrlEncodedContent(form);
 
         using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -239,6 +258,77 @@ public sealed class MicrosoftAuthProvider : IExternalAuthProvider
         var tid = ClaimOf(token, "tid");
         if (!string.IsNullOrEmpty(oid) && !string.IsNullOrEmpty(tid)) return $"{tid}.{oid}";
         return oid ?? ClaimOf(token, "sub");
+    }
+
+    /// <summary>Builds the credential for a PKCE sign-in: the authorization code plus the
+    /// <c>code_verifier</c> whose challenge went out on the authorize request. Pass the result to
+    /// <c>ExternalLoginService.SignInAsync("Microsoft", …)</c> in place of the bare code.</summary>
+    public static string FormatCredential(string code, string codeVerifier)
+    {
+        if (string.IsNullOrEmpty(code)) throw new ArgumentNullException(nameof(code));
+        if (string.IsNullOrEmpty(codeVerifier)) throw new ArgumentNullException(nameof(codeVerifier));
+        return JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["code"] = code,
+            ["code_verifier"] = codeVerifier,
+        });
+    }
+
+    /// <summary>Accepts both credential shapes: a bare authorization code, or the JSON object
+    /// <see cref="FormatCredential"/> produces. An authorization code never starts with a brace,
+    /// so the two cannot be confused.</summary>
+    private static bool TryReadCredential(string rawCredential, out string code, out string? codeVerifier)
+    {
+        code = rawCredential.Trim();
+        codeVerifier = null;
+        if (!code.StartsWith("{", StringComparison.Ordinal)) return true;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(code);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("code", out var codeElement)
+                || codeElement.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(codeElement.GetString()))
+                return false;
+
+            code = codeElement.GetString()!;
+            if (root.TryGetProperty("code_verifier", out var verifier) && verifier.ValueKind == JsonValueKind.String)
+                codeVerifier = verifier.GetString();
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether the address may be trusted as belonging to whoever signed in. Entra has no
+    /// <c>email_verified</c> claim, and the <c>email</c> claim of a work or school account is the
+    /// directory's <c>mail</c> attribute, which any tenant administrator can set to an address
+    /// they do not own. On a multi-tenant authority (<c>common</c> / <c>organizations</c>) that
+    /// means anyone with their own tenant can present anyone's address, so reporting it as
+    /// verified would hand a host that auto-links by address an account takeover.
+    ///
+    /// <para>It is verified only when one of these holds: the token carries
+    /// <c>xms_edov = true</c> (Entra's "email domain owner verified" optional claim); the
+    /// application is pinned to a single tenant GUID, whose administrator the host already
+    /// trusts; or the token comes from the consumer tenant, where Microsoft itself issues the
+    /// token and confirms the address on sign-up.</para>
+    /// </summary>
+    private static bool IsEmailVerified(JwtSecurityToken token, string? email, MicrosoftAuthProviderOptions opts)
+    {
+        if (string.IsNullOrEmpty(email)) return false;
+
+        var edov = ClaimOf(token, "xms_edov");
+        if (string.Equals(edov, "true", StringComparison.OrdinalIgnoreCase) || edov == "1") return true;
+
+        // The issuer check has already rejected any token whose tid differs from a pinned GUID.
+        if (Guid.TryParse(opts.TenantId, out _)) return true;
+
+        return string.Equals(ClaimOf(token, "tid"), ConsumerTenantId, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The address. Work and school tenants often omit <c>email</c> and carry the UPN in

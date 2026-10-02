@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.Providers.Telegram</PackageId>
-    <Version>0.11.0</Version>
+    <Version>0.11.1</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Telegram Login Widget sign-in for TechTeaStudio.Auth. Not OAuth: Telegram signs the profile payload with an HMAC derived from the bot token, so this package is a signature validator behind the same IExternalAuthProvider contract.</Description>

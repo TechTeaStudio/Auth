@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.OAuth.Microsoft</PackageId>
-    <Version>0.11.0</Version>
+    <Version>0.11.1</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Microsoft Entra ID (Azure AD) OAuth 2.0 / OIDC provider for TechTeaStudio.Auth - authorization-code exchange plus full id_token validation against the tenant JWKS.</Description>

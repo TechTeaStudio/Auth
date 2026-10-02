@@ -17,15 +17,17 @@ namespace TechTeaStudio.Auth.OAuth.EFCore;
 /// unrelated entities the caller happened to be tracking.</para>
 ///
 /// <para><b>Registering it.</b> <c>AddDbContextFactory</c> puts BOTH a factory and a scoped
-/// <typeparamref name="TContext"/> in the container, which makes the two constructors below
-/// equally resolvable - and Microsoft.Extensions.DependencyInjection refuses to guess
-/// ("The following constructors are ambiguous"). Name the one you want:
+/// <typeparamref name="TContext"/> in the container. With only the two single-argument
+/// constructors that made the type unresolvable ("The following constructors are ambiguous"),
+/// which would break every host that already registers the store by type. The two-argument
+/// constructor settles it: the container prefers it when both services are present, and it
+/// keeps the pre-0.11 behaviour of sharing the scoped context. So
+/// <c>UseExternalLoginStore&lt;EfCoreExternalLoginStore&lt;AppDbContext&gt;&gt;()</c> resolves in every
+/// combination. To get per-operation contexts in such a host, name the factory constructor:
 /// <code>
 /// authBuilder.UseExternalLoginStore(sp =&gt; new EfCoreExternalLoginStore&lt;AppDbContext&gt;(
 ///     sp.GetRequiredService&lt;IDbContextFactory&lt;AppDbContext&gt;&gt;()), ServiceLifetime.Scoped);
-/// </code>
-/// The generic <c>UseExternalLoginStore&lt;TStore&gt;()</c> overload is fine only when exactly one
-/// of the two is registered.</para>
+/// </code></para>
 /// </summary>
 public class EfCoreExternalLoginStore<TContext> : IExternalLoginStore
     where TContext : DbContext
@@ -41,6 +43,18 @@ public class EfCoreExternalLoginStore<TContext> : IExternalLoginStore
     public EfCoreExternalLoginStore(IDbContextFactory<TContext> factory)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+    }
+
+    /// <summary>Tie-breaker for dependency injection, not meant to be called by hand. When a
+    /// container holds both a scoped <typeparamref name="TContext"/> and its factory, this is the
+    /// one constructor whose parameters cover the other two, so the container picks it instead of
+    /// refusing to choose. It behaves exactly like the context-only constructor: the scoped
+    /// context is used and the factory is ignored, which is what such a host got before the
+    /// factory constructor existed.</summary>
+    public EfCoreExternalLoginStore(TContext db, IDbContextFactory<TContext> factory)
+        : this(db)
+    {
+        if (factory is null) throw new ArgumentNullException(nameof(factory));
     }
 
     /// <summary>The context for one operation, plus whether this store owns (and must dispose)

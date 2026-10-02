@@ -68,6 +68,25 @@ public class ExternalLoginServiceTests
     }
 
     [Fact]
+    public void Providers_whose_names_differ_only_by_case_are_rejected_with_both_names()
+    {
+        var concrete = TestAuthOptions.Create();
+        var opts = Options.Create(concrete);
+        var refresh = new RefreshTokenService(new JwtTokenProvider(concrete.ToMonitor()), new InMemoryRefreshTokenStore(), opts);
+
+        var act = () => new ExternalLoginService(
+            providers: new IExternalAuthProvider[] { new StubExternalAuthProvider("Google"), new StubExternalAuthProvider("google") },
+            store: new InMemoryExternalLoginStore(),
+            users: new TestExternalUserBridge(),
+            refresh: refresh,
+            options: opts,
+            passwords: new Pbkdf2PasswordHasher(),
+            revoked: new InMemoryRevokedTokenStore());
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'Google'*'google'*differ only by case*");
+    }
+
+    [Fact]
     public async Task Link_is_stored_under_the_providers_own_spelling_not_the_callers()
     {
         // The lookup forgives case; the stored row must not. One spelling in the table is what

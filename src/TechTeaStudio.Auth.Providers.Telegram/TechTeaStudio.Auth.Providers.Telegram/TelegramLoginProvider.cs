@@ -42,6 +42,15 @@ public sealed class TelegramLoginProvider : IExternalAuthProvider
             return Task.FromResult<ExternalLoginInfo?>(null);
         }
 
+        // Fail closed. The validator reads a zero window as "skip the freshness check", which is
+        // a test convenience; from configuration ("00:00:00", a typo, a negative value) it would
+        // make every captured payload a credential that never expires.
+        if (opts.MaxAge <= TimeSpan.Zero)
+        {
+            _logger?.LogWarning("Telegram login refused: MaxAge must be positive, it is the only replay defence the payload has");
+            return Task.FromResult<ExternalLoginInfo?>(null);
+        }
+
         if (!TelegramLoginValidator.TryValidate(rawCredential, opts.BotToken, opts.MaxAge, _clock(), out var fields, out var failure))
         {
             // The payload itself is never logged: it is a valid credential for whoever holds it.

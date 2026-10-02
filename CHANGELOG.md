@@ -3,7 +3,26 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-10-02
+
+A pre-publication review of 0.11.0, which never reached nuget.org (it was only ever consumed from a local feed). This is the first published version after 0.10.0, so everything listed under 0.11.0 below ships here too. All sibling packages version-aligned.
+
+### Security
+
+- **`MicrosoftAuthProvider` no longer reports every address as verified.** `EmailVerified` was `true` whenever the token carried an address. Entra has no `email_verified` claim, and the `email` claim of a work or school account is the directory's `mail` attribute, which any tenant administrator can set to an address they do not own. On the default `common` authority that let anyone with their own tenant sign in carrying `ceo@victim.example` flagged as verified, and a host that auto-links or grants anything by verified address would hand over the account. `EmailVerified` is now `true` only when the token carries `xms_edov = true` (Entra's "email domain owner verified" optional claim), when the application is pinned to a single tenant GUID, or when the token comes from the consumer tenant (personal Microsoft accounts). **Behaviour change:** multi-tenant hosts now see `EmailVerified = false` for work and school accounts unless they enable the `xms_edov` optional claim on the app registration.
+- **Telegram: a non-positive `MaxAge` no longer disables replay protection.** `TelegramLoginOptions.MaxAge` bound from configuration as `"00:00:00"` or a negative value skipped the `auth_date` check entirely, making every captured payload a credential that never expires. `TelegramLoginProvider` now refuses every sign-in while `MaxAge` is zero or negative, and `TelegramLoginValidator.TryValidate` answers `Expired` for a negative `maxAge` (zero still disables the check there, as documented, for tests).
+- **Telegram: a newline inside a key or value is refused as `Malformed`.** The check string joins fields with a newline, so a value containing one hashes identically to two separate fields and a signed payload could be re-split into different fields. Telegram does not emit such values; the validator no longer relies on that.
+
+### Fixed
+
+- **`EfCoreExternalLoginStore<TContext>` registered by type resolves again in a host that calls `AddDbContextFactory`.** 0.11.0 added a second single-argument constructor, and `AddDbContextFactory` registers both the factory and a scoped `TContext`, so `UseExternalLoginStore<EfCoreExternalLoginStore<TContext>>()` - the registration `docs/OAUTH.md` recommends and existing hosts use - threw "The following constructors are ambiguous" on the first sign-in. A third constructor taking both services is the shape the container resolves without guessing; it keeps the pre-0.11 behaviour of sharing the scoped context. The delegate overload is still the way to ask for per-operation contexts in such a host.
+- **Microsoft: PKCE sign-ins can complete.** The provider sent no `code_verifier`, so a host that put a `code_challenge` on the authorize request got `invalid_grant` on every exchange. The credential may now be either the bare authorization code or the object built by the new `MicrosoftAuthProvider.FormatCredential(code, codeVerifier)`.
+- **Provider names that differ only by case fail with a message that names both.** The case-insensitive registry of 0.11.0 turned `"Google"` plus `"google"` into `ArgumentException: An item with the same key has already been added`. It is now an `InvalidOperationException` naming the two providers and the rule. Registering such a pair is still an error: names are matched case-insensitively.
+- **Telegram: `auth_date` is parsed culture-invariantly** and must be plain digits.
+
 ## [0.11.0] - 2026-08-15
+
+Never published to nuget.org; superseded by 0.11.1.
 
 Driven by a real consumer again: Chronos wired up the OAuth stack, and three separate things stopped it from ever completing a sign-in. Two were library defects, the third was a missing provider. All sibling packages version-aligned.
 

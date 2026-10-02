@@ -29,10 +29,26 @@ Two consequences a host must handle:
   `IExternalUserBridge`.
 - **The payload replays until it expires.** There is no nonce and no single-use marker, so
   `TelegramLoginOptions.MaxAge` (default 5 minutes) is the whole defence. Do not widen it to hours.
+  It must be positive: with zero or a negative value the provider refuses every sign-in.
 
 ```csharp
 authBuilder.AddTelegramLoginProvider();   // binds Auth:Telegram { BotToken, BotUsername, MaxAge }
 ```
+
+### Microsoft: what the host must know
+
+- **`EmailVerified` is conservative.** Entra has no `email_verified` claim, and a work or school
+  account's address is a directory attribute its tenant administrator controls. On a multi-tenant
+  authority (`common`, `organizations`) the provider reports `EmailVerified = true` only for
+  personal Microsoft accounts or when the token carries `xms_edov = true`; add that optional claim
+  to the app registration to get it. With `TenantId` set to one tenant GUID the address is trusted,
+  because that tenant's administrator is someone the host already trusts. Never auto-link accounts
+  on an unverified address.
+- **`state` and `nonce` are the host's job.** The provider only sees the authorization code. Check
+  `state` on the callback before calling `SignInAsync`.
+- **PKCE.** If the authorize request carried a `code_challenge`, pass the verifier along with the
+  code: `SignInAsync("Microsoft", MicrosoftAuthProvider.FormatCredential(code, codeVerifier))`.
+  A bare code is fine when PKCE is not used.
 
 ## Three-outcome flow
 
@@ -162,6 +178,15 @@ builder.Services.AddTechTeaStudioAuth(builder.Configuration)
     .UseExternalUserBridge<HyperionExternalUserBridge>(ServiceLifetime.Scoped)
     .AddGoogleAuthProvider();
 //      ^^^^^^^^^^^^^^^^^^^^^ binds Auth:Google from config; pass an Action<GoogleAuthProviderOptions> to override
+```
+
+`EfCoreExternalLoginStore<TContext>` registered by type uses the scoped `TContext`, including in a
+host that calls `AddDbContextFactory` (which registers both). A Blazor Server host that wants a
+context per operation instead names the factory constructor:
+
+```csharp
+    .UseExternalLoginStore(sp => new EfCoreExternalLoginStore<AppDbContext>(
+        sp.GetRequiredService<IDbContextFactory<AppDbContext>>()), ServiceLifetime.Scoped)
 ```
 
 ### 6. Controller

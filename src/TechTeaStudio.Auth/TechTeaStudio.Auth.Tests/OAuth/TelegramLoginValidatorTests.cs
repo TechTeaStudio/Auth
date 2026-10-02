@@ -128,6 +128,42 @@ public class TelegramLoginValidatorTests
             .Should().BeTrue();
         parsed["some_future_field"].Should().Be("42");
     }
+
+    [Fact]
+    public void Negative_max_age_is_refused_instead_of_disabling_the_freshness_check()
+    {
+        // A negative window can only be a misconfiguration. Treating it like zero ("no limit")
+        // would turn a ten-year-old captured payload into a working credential.
+        var ancient = Signed(Payload(authDate: Now.AddYears(-10).ToUnixTimeSeconds()));
+
+        TelegramLoginValidator.TryValidate(ancient, BotToken, TimeSpan.FromMinutes(-5), Now, out _, out var failure)
+            .Should().BeFalse();
+        failure.Should().Be(TelegramLoginFailure.Expired);
+    }
+
+    [Fact]
+    public void Newline_inside_a_value_is_refused()
+    {
+        // first_name = "A" + newline + "id=1" produces the same check string as the two separate
+        // fields first_name=A and id=1, so a signed payload could be re-split into another id.
+        var fields = Payload();
+        fields["first_name"] = "Iaroslav\nzzz=1";
+
+        TelegramLoginValidator.TryValidate(Signed(fields), BotToken, TimeSpan.FromMinutes(5), Now, out _, out var failure)
+            .Should().BeFalse();
+        failure.Should().Be(TelegramLoginFailure.Malformed);
+    }
+
+    [Fact]
+    public void Auth_date_with_a_sign_or_spaces_is_refused()
+    {
+        var fields = Payload();
+        fields["auth_date"] = " " + fields["auth_date"];
+
+        TelegramLoginValidator.TryValidate(Signed(fields), BotToken, TimeSpan.FromMinutes(5), Now, out _, out var failure)
+            .Should().BeFalse();
+        failure.Should().Be(TelegramLoginFailure.MissingAuthDate);
+    }
 }
 
 public class TelegramLoginProviderTests
@@ -190,6 +226,19 @@ public class TelegramLoginProviderTests
     public async Task Empty_payload_returns_null()
     {
         var info = await Sut(new TelegramLoginOptions { BotToken = BotToken }).ValidateAsync("");
+        info.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-300)]
+    public async Task Non_positive_max_age_refuses_every_sign_in(int seconds)
+    {
+        // "Auth:Telegram:MaxAge": "00:00:00" must not mean "payloads never expire".
+        var options = new TelegramLoginOptions { BotToken = BotToken, MaxAge = TimeSpan.FromSeconds(seconds) };
+
+        var info = await Sut(options).ValidateAsync(SignedPayload());
+
         info.Should().BeNull();
     }
 }

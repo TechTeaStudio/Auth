@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -41,7 +42,9 @@ public static class TelegramLoginValidator
     /// appear in the wild depending on how the host mounted the widget.</param>
     /// <param name="botToken">The bot token from BotFather, exactly as issued.</param>
     /// <param name="maxAge">How old <c>auth_date</c> may be. <see cref="TimeSpan.Zero"/> disables
-    /// the check - only sane in tests.</param>
+    /// the check - only sane in tests. A negative value is refused as
+    /// <see cref="TelegramLoginFailure.Expired"/>: it can only be a misconfiguration, and reading
+    /// it as "no limit" would switch the replay defence off.</param>
     /// <param name="now">Current time, injected so the freshness check is testable.</param>
     /// <param name="fields">Every field of the payload, hash included, on success.</param>
     /// <param name="failure">Why it was refused, on failure.</param>
@@ -75,9 +78,18 @@ public static class TelegramLoginValidator
         }
 
         if (!parsed.TryGetValue("auth_date", out var authDateRaw)
-            || !long.TryParse(authDateRaw, out var authDateUnix))
+            || !long.TryParse(authDateRaw, NumberStyles.None, CultureInfo.InvariantCulture, out var authDateUnix))
         {
             failure = TelegramLoginFailure.MissingAuthDate;
+            return false;
+        }
+
+        // The check string joins fields with a newline, so a newline INSIDE a key or value would
+        // let one signed field be re-read as two: first_name "A", newline, "id=1" hashes the same
+        // as first_name=A plus id=1. Telegram never emits one; refuse instead of guessing.
+        if (parsed.Any(kv => kv.Key.IndexOf('\n') >= 0 || kv.Value.IndexOf('\n') >= 0))
+        {
+            failure = TelegramLoginFailure.Malformed;
             return false;
         }
 
@@ -88,8 +100,20 @@ public static class TelegramLoginValidator
             return false;
         }
 
+        if (maxAge < TimeSpan.Zero)
+        {
+            failure = TelegramLoginFailure.Expired;
+            return false;
+        }
+
         if (maxAge > TimeSpan.Zero)
         {
+            // Past DateTimeOffset's own range: not a date Telegram could have signed.
+            if (authDateUnix > 253402300799L)
+            {
+                failure = TelegramLoginFailure.Expired;
+                return false;
+            }
             var authDate = DateTimeOffset.FromUnixTimeSeconds(authDateUnix);
             // Both directions: a payload from the future is as suspect as a stale one, and small
             // clock drift on either side is what the caller's maxAge already absorbs.

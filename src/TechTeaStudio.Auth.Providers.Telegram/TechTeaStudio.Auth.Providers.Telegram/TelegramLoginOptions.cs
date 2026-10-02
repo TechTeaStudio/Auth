@@ -17,6 +17,7 @@ public sealed class TelegramLoginOptions
 
     /// <summary>How old <c>auth_date</c> may be before the payload is refused. Telegram's payload
     /// has no nonce and no single-use marker, so this window IS the replay defence: a captured
-    /// payload is a working credential until it expires.</summary>
+    /// payload is a working credential until it expires. Must be positive: the provider refuses
+    /// every sign-in while it is zero or negative rather than run with no window at all.</summary>
     public TimeSpan MaxAge { get; set; } = TimeSpan.FromMinutes(5);
 }

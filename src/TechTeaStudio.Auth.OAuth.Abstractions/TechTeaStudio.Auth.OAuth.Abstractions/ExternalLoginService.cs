@@ -47,7 +47,19 @@ public sealed class ExternalLoginService
         // ordinal lookup turned that mismatch into Failed("unknown_provider") on every single
         // sign-in, with nothing in the error naming the cause. The stored ExternalLogin.Provider
         // still carries the provider's own canonical Name, so persisted links stay one spelling.
-        _providers = providers.ToDictionary(p => p.Name, p => p, StringComparer.OrdinalIgnoreCase);
+        var byName = new Dictionary<string, IExternalAuthProvider>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in providers)
+        {
+            // Two names that differ only by case were two providers before 0.11.0 and are one
+            // key now. Name the pair that collided instead of surfacing the dictionary's bare
+            // "An item with the same key has already been added".
+            if (byName.TryGetValue(p.Name, out var clash))
+                throw new InvalidOperationException(
+                    $"External auth providers '{clash.Name}' ({clash.GetType().Name}) and '{p.Name}' ({p.GetType().Name}) " +
+                    "have names that differ only by case. Provider names are matched case-insensitively, so each must be unique.");
+            byName[p.Name] = p;
+        }
+        _providers = byName;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _users = users ?? throw new ArgumentNullException(nameof(users));
         _refresh = refresh ?? throw new ArgumentNullException(nameof(refresh));
