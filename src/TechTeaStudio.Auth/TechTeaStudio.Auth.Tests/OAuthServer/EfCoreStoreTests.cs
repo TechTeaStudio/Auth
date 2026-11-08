@@ -197,6 +197,127 @@ public abstract class OAuthStoreContract
     }
 
     [Fact]
+    public async Task Code_get_reads_without_consuming()
+    {
+        await Codes.SaveAsync(NewCode("g1", Now.AddSeconds(60)));
+        (await Codes.GetAsync("g1"))!.ConsumedAt.Should().BeNull();
+        (await Codes.GetAsync("g1"))!.UserId.Should().Be("u");
+        (await Codes.TryConsumeAsync("g1", Now))!.AlreadyConsumed.Should().BeFalse();
+        (await Codes.GetAsync("g1"))!.ConsumedAt.Should().Be(Now);
+        (await Codes.GetAsync("missing")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Pending_count_counts_live_rows_of_one_client()
+    {
+        await Pending.SaveAsync(NewPending("c1", Now.AddMinutes(10)));
+        await Pending.SaveAsync(NewPending("c2", Now.AddMinutes(10)));
+        await Pending.SaveAsync(NewPending("c3", Now.AddMinutes(-1)));
+        await Pending.SaveAsync(NewPending("c4", Now.AddMinutes(10)) with { ClientId = "other" });
+
+        (await Pending.CountForClientAsync("c", Now)).Should().Be(2);
+        (await Pending.CountForClientAsync("other", Now)).Should().Be(1);
+        (await Pending.CountForClientAsync("none", Now)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Families_are_ensured_once_and_revocation_upserts_and_sticks()
+    {
+        var fam = Guid.NewGuid();
+        await Refresh.EnsureFamilyAsync(new OAuthRefreshFamily { FamilyId = fam, UserId = "u", ClientId = "c", CreatedAt = Now, ExpiresAt = Now.AddDays(90) });
+        await Refresh.EnsureFamilyAsync(new OAuthRefreshFamily { FamilyId = fam, UserId = "x", ClientId = "y", CreatedAt = Now.AddDays(1), ExpiresAt = Now.AddDays(91) });
+        var f = await Refresh.GetFamilyAsync(fam);
+        f!.UserId.Should().Be("u");
+        f.ExpiresAt.Should().Be(Now.AddDays(90));
+        f.RevokedAt.Should().BeNull();
+
+        await Refresh.RevokeFamilyAsync(fam, Now.AddHours(1));
+        (await Refresh.GetFamilyAsync(fam))!.RevokedAt.Should().Be(Now.AddHours(1));
+
+        var ghost = Guid.NewGuid();
+        await Refresh.RevokeFamilyAsync(ghost, Now);
+        (await Refresh.GetFamilyAsync(ghost))!.RevokedAt.Should().NotBeNull();
+        await Refresh.EnsureFamilyAsync(new OAuthRefreshFamily { FamilyId = ghost, UserId = "u", ClientId = "c", CreatedAt = Now, ExpiresAt = Now.AddDays(90) });
+        (await Refresh.GetFamilyAsync(ghost))!.RevokedAt.Should().NotBeNull();
+        (await Refresh.GetFamilyAsync(Guid.NewGuid())).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Revoking_for_a_user_flags_their_families_and_tokens_but_not_others()
+    {
+        var mine = Guid.NewGuid();
+        var theirs = Guid.NewGuid();
+        await Refresh.EnsureFamilyAsync(new OAuthRefreshFamily { FamilyId = mine, UserId = "alice", ClientId = "c1", CreatedAt = Now, ExpiresAt = Now.AddDays(90) });
+        await Refresh.EnsureFamilyAsync(new OAuthRefreshFamily { FamilyId = theirs, UserId = "bob", ClientId = "c1", CreatedAt = Now, ExpiresAt = Now.AddDays(90) });
+        await Refresh.CreateAsync(NewRefresh("u1", mine, "alice", "c1"));
+        await Refresh.CreateAsync(NewRefresh("u2", theirs, "bob", "c1"));
+
+        (await Refresh.RevokeForUserAsync("alice", Now)).Should().Be(1);
+        (await Refresh.GetByHashAsync("u1"))!.RevokedAt.Should().NotBeNull();
+        (await Refresh.GetFamilyAsync(mine))!.RevokedAt.Should().NotBeNull();
+        (await Refresh.GetByHashAsync("u2"))!.RevokedAt.Should().BeNull();
+        (await Refresh.GetFamilyAsync(theirs))!.RevokedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Revoking_for_a_user_and_client_flags_only_that_pairs_families()
+    {
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        await Refresh.EnsureFamilyAsync(new OAuthRefreshFamily { FamilyId = a, UserId = "alice", ClientId = "c1", CreatedAt = Now, ExpiresAt = Now.AddDays(90) });
+        await Refresh.EnsureFamilyAsync(new OAuthRefreshFamily { FamilyId = b, UserId = "alice", ClientId = "c2", CreatedAt = Now, ExpiresAt = Now.AddDays(90) });
+
+        await Refresh.RevokeForUserClientAsync("alice", "c1", Now);
+        (await Refresh.GetFamilyAsync(a))!.RevokedAt.Should().NotBeNull();
+        (await Refresh.GetFamilyAsync(b))!.RevokedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Family_cleanup_drops_expired_families()
+    {
+        var old = Guid.NewGuid();
+        await Refresh.EnsureFamilyAsync(new OAuthRefreshFamily { FamilyId = old, UserId = "u", ClientId = "c", CreatedAt = Now, ExpiresAt = Now.AddDays(1) });
+        await Refresh.CleanupExpiredAsync(Now.AddDays(2));
+        (await Refresh.GetFamilyAsync(old)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Grants_delete_all_for_user_removes_only_that_users_rows()
+    {
+        await Grants.UpsertAsync("u", "c1", "A", new[] { "a" }, Now);
+        await Grants.UpsertAsync("u", "c2", "B", new[] { "a" }, Now);
+        await Grants.UpsertAsync("v", "c1", "A", new[] { "a" }, Now);
+
+        (await Grants.DeleteAllForUserAsync("u")).Should().Be(2);
+        (await Grants.ListForUserAsync("u")).Should().BeEmpty();
+        (await Grants.ListForUserAsync("v")).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Client_touch_and_unused_cleanup_spare_granted_recent_and_preregistered_style_rows()
+    {
+        OAuthClient Dyn(string id, OAuthClientSource source = OAuthClientSource.Dynamic) => new()
+        {
+            ClientId = id, RedirectUris = new[] { "https://a.example/cb" }, Source = source, CreatedAt = Now,
+        };
+        await Clients.SaveAsync(Dyn("idle"));
+        await Clients.SaveAsync(Dyn("granted"));
+        await Clients.SaveAsync(Dyn("recent"));
+        await Clients.SaveAsync(Dyn("seeded", OAuthClientSource.PreRegistered));
+        await Grants.UpsertAsync("u", "granted", "G", new[] { "a" }, Now);
+        await Clients.TouchAsync("recent", Now.AddDays(39));
+
+        (await Clients.FindAsync("recent"))!.LastUsedAt.Should().Be(Now.AddDays(39));
+        (await Clients.FindAsync("idle"))!.LastUsedAt.Should().BeNull();
+
+        (await Clients.CleanupUnusedAsync(Now.AddDays(10))).Should().Be(1);
+        (await Clients.FindAsync("idle")).Should().BeNull();
+        (await Clients.FindAsync("granted")).Should().NotBeNull();
+        (await Clients.FindAsync("recent")).Should().NotBeNull();
+        (await Clients.FindAsync("seeded")).Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task Grants_upsert_widens_lists_touches_and_deletes()
     {
         await Grants.UpsertAsync("u", "c", "Client", new[] { "a" }, Now);
@@ -225,7 +346,9 @@ public abstract class OAuthStoreContract
 
 public class InMemoryOAuthStoreTests : OAuthStoreContract
 {
-    protected override IOAuthClientStore Clients { get; } = new InMemoryOAuthClientStore();
+    public InMemoryOAuthStoreTests() => Clients = new InMemoryOAuthClientStore(Grants);
+
+    protected override IOAuthClientStore Clients { get; }
     protected override IOAuthPendingRequestStore Pending { get; } = new InMemoryOAuthPendingRequestStore();
     protected override IOAuthCodeStore Codes { get; } = new InMemoryOAuthCodeStore();
     protected override IOAuthRefreshTokenStore Refresh { get; } = new InMemoryOAuthRefreshTokenStore();
@@ -263,7 +386,7 @@ public class EfCoreOAuthStoreTests : OAuthStoreContract, IDisposable
     public void Tables_use_the_prefix_and_are_all_mapped()
     {
         var names = _db.Model.GetEntityTypes().Select(e => e.GetTableName()).ToArray();
-        names.Should().BeEquivalentTo("TtsOAuthClients", "TtsOAuthPendingRequests", "TtsOAuthCodes", "TtsOAuthRefreshTokens", "TtsOAuthGrants");
+        names.Should().BeEquivalentTo("TtsOAuthClients", "TtsOAuthPendingRequests", "TtsOAuthCodes", "TtsOAuthRefreshTokens", "TtsOAuthFamilies", "TtsOAuthGrants");
     }
 
     [Fact]

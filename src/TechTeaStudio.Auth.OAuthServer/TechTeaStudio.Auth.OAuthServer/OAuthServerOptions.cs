@@ -11,6 +11,12 @@ public static class OAuthServerPaths
     public const string Token = "/oauth/token";
     public const string Register = "/oauth/register";
     public const string Revoke = "/oauth/revoke";
+
+    /// <summary>Name to register a rate limiter under and apply with <c>MapTechTeaStudioOAuthServer().RequireRateLimiting(OAuthServerPaths.RateLimitPolicy)</c>.</summary>
+    public const string RateLimitPolicy = "tts-oauth";
+
+    /// <summary>Cookie that binds a pending request to the browser that started it.</summary>
+    public const string ConsentBindingCookie = "__Host-tts-oauth-consent";
 }
 
 /// <summary>Scopes the server can grant. <c>Add(name, description)</c> reads well in an options lambda.</summary>
@@ -67,7 +73,8 @@ public sealed class OAuthServerOptions
 
     public List<OAuthClientOptions> Clients { get; set; } = new();
 
-    public bool EnableDynamicRegistration { get; set; } = true;
+    /// <summary>RFC 7591 registration writes a row per call from an unauthenticated caller, so hosts opt in (and rate limit it).</summary>
+    public bool EnableDynamicRegistration { get; set; }
     public bool EnableClientIdMetadataDocuments { get; set; } = true;
 
     /// <summary>Let a returning user with a covering grant skip the consent screen (host calls <see cref="IOAuthAuthorizationService.TryAutoApproveAsync"/>).</summary>
@@ -90,7 +97,16 @@ public sealed class OAuthServerOptions
     public TimeSpan ClientMetadataDefaultCache { get; set; } = TimeSpan.FromHours(1);
 
     public int MaxClientNameLength { get; set; } = 100;
-    public int MaxRedirectUrisPerClient { get; set; } = 10;
+    public int MaxRedirectUrisPerClient { get; set; } = 5;
+
+    /// <summary>Live pending authorization requests one client id may hold.</summary>
+    public int MaxPendingRequestsPerClient { get; set; } = 50;
+
+    /// <summary>Concurrent client metadata document downloads, process wide.</summary>
+    public int MaxConcurrentMetadataFetches { get; set; } = 4;
+
+    /// <summary>A refresh family stops refreshing this long after the first exchange, however often it was used.</summary>
+    public TimeSpan RefreshFamilyAbsoluteLifetime { get; set; } = TimeSpan.FromDays(90);
     public int MaxClientMetadataBytes { get; set; } = 64 * 1024;
     public TimeSpan ClientMetadataFetchTimeout { get; set; } = TimeSpan.FromSeconds(5);
 

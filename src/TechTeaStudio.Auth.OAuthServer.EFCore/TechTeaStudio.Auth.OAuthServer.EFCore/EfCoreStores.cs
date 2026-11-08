@@ -46,6 +46,47 @@ public class EfCoreOAuthClientStore<TContext> : IOAuthClientStore where TContext
         _db.Add(OAuthClientEntity.FromDomain(client));
         await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    public async Task TouchAsync(string clientId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        var e = await _db.Set<OAuthClientEntity>().FirstOrDefaultAsync(c => c.ClientId == clientId, cancellationToken).ConfigureAwait(false);
+        if (e is null) return;
+        e.LastUsedAt = now;
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            EfRetry.DetachConflicts(_db, ex);
+        }
+        EfRetry.Detach(_db, new object[] { e });
+    }
+
+    public async Task<int> CleanupUnusedAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default)
+    {
+        var dyn = (int)OAuthClientSource.Dynamic;
+        var grants = _db.Set<OAuthGrantEntity>();
+        for (var attempt = 0; ; attempt++)
+        {
+            var rows = await _db.Set<OAuthClientEntity>()
+                .Where(c => c.Source == dyn
+                    && ((c.LastUsedAt != null && c.LastUsedAt < olderThan) || (c.LastUsedAt == null && c.CreatedAt < olderThan))
+                    && !grants.Any(g => g.ClientId == c.ClientId))
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+            if (rows.Count == 0) return 0;
+            _db.RemoveRange(rows);
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                return rows.Count;
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < EfRetry.MaxAttempts)
+            {
+                EfRetry.DetachConflicts(_db, ex);
+            }
+        }
+    }
 }
 
 public class EfCoreOAuthPendingRequestStore<TContext> : IOAuthPendingRequestStore where TContext : DbContext
@@ -84,6 +125,9 @@ public class EfCoreOAuthPendingRequestStore<TContext> : IOAuthPendingRequestStor
         return e.ExpiresAt > now ? domain : null;
     }
 
+    public Task<int> CountForClientAsync(string clientId, DateTimeOffset now, CancellationToken cancellationToken = default) =>
+        _db.Set<OAuthPendingRequestEntity>().AsNoTracking().CountAsync(p => p.ClientId == clientId && p.ExpiresAt > now, cancellationToken);
+
     public async Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
     {
         for (var attempt = 0; ; attempt++)
@@ -113,6 +157,12 @@ public class EfCoreOAuthCodeStore<TContext> : IOAuthCodeStore where TContext : D
     {
         _db.Add(OAuthCodeEntity.FromDomain(code));
         await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<AuthorizationCode?> GetAsync(string codeHash, CancellationToken cancellationToken = default)
+    {
+        var e = await _db.Set<OAuthCodeEntity>().AsNoTracking().FirstOrDefaultAsync(c => c.CodeHash == codeHash, cancellationToken).ConfigureAwait(false);
+        return e?.ToDomain();
     }
 
     public async Task<CodeConsumeResult?> TryConsumeAsync(string codeHash, DateTimeOffset now, CancellationToken cancellationToken = default)
@@ -209,11 +259,108 @@ public class EfCoreOAuthRefreshTokenStore<TContext> : IOAuthRefreshTokenStore wh
         return true;
     }
 
-    public Task<int> RevokeFamilyAsync(Guid familyId, DateTimeOffset now, CancellationToken cancellationToken = default) =>
-        RevokeAsync(t => t.FamilyId == familyId && t.RevokedAt == null, now, cancellationToken);
+    private DbSet<OAuthRefreshFamilyEntity> Families => _db.Set<OAuthRefreshFamilyEntity>();
 
-    public Task<int> RevokeForUserClientAsync(string userId, string clientId, DateTimeOffset now, CancellationToken cancellationToken = default) =>
-        RevokeAsync(t => t.UserId == userId && t.ClientId == clientId && t.RevokedAt == null, now, cancellationToken);
+    public async Task<int> RevokeFamilyAsync(Guid familyId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        await FlagFamilyAsync(familyId, now, cancellationToken).ConfigureAwait(false);
+        return await RevokeAsync(t => t.FamilyId == familyId && t.RevokedAt == null, now, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<int> RevokeForUserClientAsync(string userId, string clientId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        await FlagFamiliesAsync(f => f.UserId == userId && f.ClientId == clientId && f.RevokedAt == null, now, cancellationToken).ConfigureAwait(false);
+        return await RevokeAsync(t => t.UserId == userId && t.ClientId == clientId && t.RevokedAt == null, now, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<int> RevokeForUserAsync(string userId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        await FlagFamiliesAsync(f => f.UserId == userId && f.RevokedAt == null, now, cancellationToken).ConfigureAwait(false);
+        return await RevokeAsync(t => t.UserId == userId && t.RevokedAt == null, now, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<OAuthRefreshFamily?> GetFamilyAsync(Guid familyId, CancellationToken cancellationToken = default)
+    {
+        var e = await Families.AsNoTracking().FirstOrDefaultAsync(f => f.FamilyId == familyId, cancellationToken).ConfigureAwait(false);
+        return e?.ToDomain();
+    }
+
+    public async Task EnsureFamilyAsync(OAuthRefreshFamily family, CancellationToken cancellationToken = default)
+    {
+        if (await Families.AsNoTracking().AnyAsync(f => f.FamilyId == family.FamilyId, cancellationToken).ConfigureAwait(false)) return;
+        var entity = OAuthRefreshFamilyEntity.FromDomain(family);
+        Families.Add(entity);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateException)
+        {
+            // Lost the insert race: the winner's row (possibly an already revoked one) stands.
+        }
+        EfRetry.Detach(_db, new object[] { entity });
+    }
+
+    /// <summary>Marks the family revoked, creating a stub record when none exists yet so the revoke outlives a racing issuance.</summary>
+    private async Task FlagFamilyAsync(Guid familyId, DateTimeOffset now, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var e = await Families.FirstOrDefaultAsync(f => f.FamilyId == familyId, ct).ConfigureAwait(false);
+            if (e is null)
+            {
+                e = new OAuthRefreshFamilyEntity { FamilyId = familyId, CreatedAt = now, ExpiresAt = now.AddDays(1), RevokedAt = now };
+                Families.Add(e);
+            }
+            else if (e.RevokedAt is null)
+            {
+                e.RevokedAt = now;
+                e.ConcurrencyStamp = Guid.NewGuid().ToString();
+            }
+            else
+            {
+                EfRetry.Detach(_db, new object[] { e });
+                return;
+            }
+
+            try
+            {
+                await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+                EfRetry.Detach(_db, new object[] { e });
+                return;
+            }
+            catch (DbUpdateException ex) when (attempt < EfRetry.MaxAttempts)
+            {
+                if (ex is DbUpdateConcurrencyException c) EfRetry.DetachConflicts(_db, c);
+                EfRetry.Detach(_db, new object[] { e });
+            }
+        }
+    }
+
+    private async Task FlagFamiliesAsync(System.Linq.Expressions.Expression<Func<OAuthRefreshFamilyEntity, bool>> predicate, DateTimeOffset now, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var rows = await Families.Where(predicate).ToListAsync(ct).ConfigureAwait(false);
+            if (rows.Count == 0) return;
+            foreach (var r in rows)
+            {
+                r.RevokedAt = now;
+                r.ConcurrencyStamp = Guid.NewGuid().ToString();
+            }
+            try
+            {
+                await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+                EfRetry.Detach(_db, rows);
+                return;
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < EfRetry.MaxAttempts)
+            {
+                EfRetry.DetachConflicts(_db, ex);
+                EfRetry.Detach(_db, rows);
+            }
+        }
+    }
 
     private async Task<int> RevokeAsync(System.Linq.Expressions.Expression<Func<OAuthRefreshTokenEntity, bool>> predicate, DateTimeOffset now, CancellationToken ct)
     {
@@ -245,8 +392,10 @@ public class EfCoreOAuthRefreshTokenStore<TContext> : IOAuthRefreshTokenStore wh
         for (var attempt = 0; ; attempt++)
         {
             var rows = await Set.Where(t => t.ExpiresAt <= cutoff).ToListAsync(cancellationToken).ConfigureAwait(false);
-            if (rows.Count == 0) return 0;
+            var oldFamilies = await Families.Where(f => f.ExpiresAt <= cutoff).ToListAsync(cancellationToken).ConfigureAwait(false);
+            if (rows.Count == 0 && oldFamilies.Count == 0) return 0;
             Set.RemoveRange(rows);
+            Families.RemoveRange(oldFamilies);
             try
             {
                 await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -330,6 +479,28 @@ public class EfCoreOAuthGrantStore<TContext> : IOAuthGrantStore where TContext :
     {
         var rows = await Set.AsNoTracking().Where(g => g.UserId == userId).ToListAsync(cancellationToken).ConfigureAwait(false);
         return rows.Select(r => r.ToDomain()).OrderByDescending(g => g.LastUsedAt).ToArray();
+    }
+
+    public Task<bool> AnyForClientAsync(string clientId, CancellationToken cancellationToken = default) =>
+        Set.AsNoTracking().AnyAsync(g => g.ClientId == clientId, cancellationToken);
+
+    public async Task<int> DeleteAllForUserAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var rows = await Set.Where(g => g.UserId == userId).ToListAsync(cancellationToken).ConfigureAwait(false);
+            if (rows.Count == 0) return 0;
+            Set.RemoveRange(rows);
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                return rows.Count;
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < EfRetry.MaxAttempts)
+            {
+                EfRetry.DetachConflicts(_db, ex);
+            }
+        }
     }
 
     public async Task<bool> DeleteAsync(string userId, string clientId, CancellationToken cancellationToken = default)

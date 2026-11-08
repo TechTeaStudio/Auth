@@ -73,7 +73,11 @@ internal static class ClientMetadataParser
     public static string? CleanText(string? s, int max)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
-        var clean = new string(s.Where(c => !char.IsControl(c)).ToArray()).Trim();
+        // Controls plus Format (bidi overrides, zero-width joiners, BOM) and the line and paragraph separators.
+        static bool Unsafe(char c) =>
+            char.IsControl(c) || char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.Format
+                or System.Globalization.UnicodeCategory.LineSeparator or System.Globalization.UnicodeCategory.ParagraphSeparator;
+        var clean = new string(s.Where(c => !Unsafe(c)).ToArray()).Trim();
         if (clean.Length == 0) return null;
         return clean.Length > max ? clean.Substring(0, max) : clean;
     }
@@ -92,6 +96,7 @@ internal static class ClientMetadataParser
         if (clientId.Length > 512 || !clientId.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return false;
         if (!Uri.TryCreate(clientId, UriKind.Absolute, out var u)) return false;
         if (u.Scheme != Uri.UriSchemeHttps || u.Fragment.Length > 0 || clientId.Contains('#') || u.UserInfo.Length > 0) return false;
+        if (u.Port != 443) return false;
         if (u.AbsolutePath == "/" || u.AbsolutePath.Length < 2) return false;
         if (clientId.Contains("/./") || clientId.Contains("/../") || clientId.EndsWith("/.") || clientId.EndsWith("/..")) return false;
         uri = u;

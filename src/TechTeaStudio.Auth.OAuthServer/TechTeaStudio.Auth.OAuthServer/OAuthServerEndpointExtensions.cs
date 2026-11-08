@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using TechTeaStudio.Auth.OAuthServer.Abstractions;
+using TechTeaStudio.Auth.OAuthServer.Internal;
 using TechTeaStudio.Auth.OAuthServer.Services;
 
 namespace TechTeaStudio.Auth.OAuthServer;
@@ -73,6 +74,8 @@ public static class OAuthServerEndpointExtensions
         ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
         if (outcome.Location is not null)
         {
+            if (outcome.PendingId is not null)
+                ConsentBinding.Add(ctx, outcome.PendingId, ctx.RequestServices.GetRequiredService<IOptions<OAuthServerOptions>>().Value.PendingRequestLifetime);
             ctx.Response.StatusCode = StatusCodes.Status302Found;
             ctx.Response.Headers["Location"] = outcome.Location;
             return;
@@ -105,8 +108,9 @@ public static class OAuthServerEndpointExtensions
             await WriteResultAsync(ctx, TokenEndpointResult.Error("invalid_request", "token is required.")).ConfigureAwait(false);
             return;
         }
-        await ctx.RequestServices.GetRequiredService<OAuthTokenService>().RevokeAsync(form, ctx.RequestAborted).ConfigureAwait(false);
-        ctx.Response.StatusCode = StatusCodes.Status200OK;
+        var result = await ctx.RequestServices.GetRequiredService<OAuthTokenService>().RevokeAsync(form, ctx.RequestAborted).ConfigureAwait(false);
+        if (result.Status == StatusCodes.Status200OK) ctx.Response.StatusCode = StatusCodes.Status200OK;
+        else await WriteResultAsync(ctx, result).ConfigureAwait(false);
     }
 
     private static async Task RegisterAsync(HttpContext ctx)

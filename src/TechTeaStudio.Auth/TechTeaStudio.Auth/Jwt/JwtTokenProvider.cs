@@ -53,10 +53,10 @@ public sealed class JwtTokenProvider : ITokenProvider
         var lifetime = descriptor.Lifetime ?? _monitor.CurrentValue.Jwt.TokenLifetime;
         if (lifetime <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(descriptor), "descriptor.Lifetime must be positive.");
 
-        return CreateTokenCore(userId, claims, lifetime, descriptor.Audience, descriptor.Issuer, descriptor.NotBefore);
+        return CreateTokenCore(userId, claims, lifetime, descriptor.Audience, descriptor.Issuer, descriptor.NotBefore, descriptor.TokenType);
     }
 
-    private string CreateTokenCore(string userId, IEnumerable<Claim> claims, TimeSpan lifetime, string? audience, string? issuer, DateTimeOffset? notBefore)
+    private string CreateTokenCore(string userId, IEnumerable<Claim> claims, TimeSpan lifetime, string? audience, string? issuer, DateTimeOffset? notBefore, string? tokenType = null)
     {
         var options = _monitor.CurrentValue;
         var active = SigningKeyResolver.ResolveActive(options);
@@ -93,6 +93,7 @@ public sealed class JwtTokenProvider : ITokenProvider
             Issuer = issuer ?? options.Jwt.Issuer,
             Audience = audience ?? options.Jwt.Audience,
             SigningCredentials = creds,
+            TokenType = tokenType,
         };
 
         var token = _handler.CreateToken(tokenDescriptor);

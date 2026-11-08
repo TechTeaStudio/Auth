@@ -41,6 +41,7 @@ internal sealed class ClientMetadataCache
 internal sealed class OAuthClientResolver
 {
     private static readonly TimeSpan NegativeCache = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan TouchInterval = TimeSpan.FromHours(1);
 
     private readonly OAuthServerOptions _options;
     private readonly IOAuthClientStore _store;
@@ -80,7 +81,13 @@ internal sealed class OAuthClientResolver
             };
 
         var stored = await _store.FindAsync(clientId, ct).ConfigureAwait(false);
-        if (stored is not null) return stored;
+        if (stored is not null)
+        {
+            var seen = _time.GetUtcNow();
+            if (stored.Source == OAuthClientSource.Dynamic && (stored.LastUsedAt is null || seen - stored.LastUsedAt.Value >= TouchInterval))
+                await _store.TouchAsync(stored.ClientId, seen, ct).ConfigureAwait(false);
+            return stored;
+        }
 
         if (!_options.EnableClientIdMetadataDocuments || !ClientMetadataParser.IsMetadataDocumentUrl(clientId, out var url))
             return null;
@@ -88,7 +95,15 @@ internal sealed class OAuthClientResolver
         var now = _time.GetUtcNow();
         if (_cache.TryGet(clientId, now, out var cached)) return cached;
 
-        var fetched = await _fetcher.FetchAsync(url, ct).ConfigureAwait(false);
+        ClientMetadataFetchResult fetched;
+        try
+        {
+            fetched = await _fetcher.FetchAsync(url, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            fetched = ClientMetadataFetchResult.Fail("fetcher_error");
+        }
         if (!fetched.Succeeded)
         {
             await Fail(clientId, fetched.Error ?? "fetch_failed", now, ct).ConfigureAwait(false);

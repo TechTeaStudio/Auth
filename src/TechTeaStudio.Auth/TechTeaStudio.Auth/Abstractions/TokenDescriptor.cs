@@ -24,6 +24,9 @@ public sealed record TokenDescriptor
     /// <summary>Overrides the token time-to-live. <c>null</c> falls back to <see cref="JwtOptions.TokenLifetime"/>.</summary>
     public TimeSpan? Lifetime { get; init; }
 
+    /// <summary>Sets the JWT header <c>typ</c> (for example <c>at+jwt</c>, RFC 9068). <c>null</c> keeps the default <c>JWT</c>.</summary>
+    public string? TokenType { get; init; }
+
     /// <summary>Overrides <c>nbf</c> (not valid before). <c>null</c> defaults to the moment of issuance.</summary>
     public DateTimeOffset? NotBefore { get; init; }
 }

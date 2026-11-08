@@ -8,9 +8,9 @@ using TechTeaStudio.Auth.OAuthServer.Internal;
 namespace TechTeaStudio.Auth.OAuthServer.Services;
 
 /// <summary>What <c>GET /oauth/authorize</c> should answer with.</summary>
-internal sealed record AuthorizeOutcome(string? Location, string? PlainError)
+internal sealed record AuthorizeOutcome(string? Location, string? PlainError, string? PendingId = null)
 {
-    public static AuthorizeOutcome Redirect(string url) => new(url, null);
+    public static AuthorizeOutcome Redirect(string url, string? pendingId = null) => new(url, null, pendingId);
     public static AuthorizeOutcome Bad(string message) => new(null, message);
 }
 
@@ -62,7 +62,11 @@ internal sealed class OAuthAuthorizationService : IOAuthAuthorizationService
         {
             new("error", error), new("error_description", description), new("state", state), new("iss", _options.Issuer),
         });
-        AuthorizeOutcome Err(string error, string description) => AuthorizeOutcome.Redirect(Fail(error, description));
+        // Only pre-registered clients are trusted with an error redirect. A self-registered or metadata-document
+        // client could otherwise use this endpoint as an open redirector with attacker-chosen error text.
+        var trusted = client.Source == OAuthClientSource.PreRegistered;
+        AuthorizeOutcome Err(string error, string description) =>
+            trusted ? AuthorizeOutcome.Redirect(Fail(error, description)) : AuthorizeOutcome.Bad(error + ": " + description);
 
         if (mState || state is { Length: > 2048 }) { state = null; return Err("invalid_request", "state is invalid."); }
 
@@ -86,6 +90,9 @@ internal sealed class OAuthAuthorizationService : IOAuthAuthorizationService
         else if (scopes.Any(s => _options.Scopes.Find(s) is null)) return Err("invalid_scope", "One or more requested scopes are not supported.");
 
         var now = _time.GetUtcNow();
+        if (await _pending.CountForClientAsync(client.ClientId, now, ct).ConfigureAwait(false) >= _options.MaxPendingRequestsPerClient)
+            return Err("temporarily_unavailable", "Too many authorization requests are pending for this client.");
+
         var pending = new PendingAuthorization
         {
             Id = OAuthSecrets.NewToken(),
@@ -101,7 +108,7 @@ internal sealed class OAuthAuthorizationService : IOAuthAuthorizationService
         await _pending.SaveAsync(pending, ct).ConfigureAwait(false);
         await _audit.LogAsync(new OAuthAuthorizeRequestedEvent(client.ClientId, resource, ScopeList.Join(scopes), now), ct).ConfigureAwait(false);
 
-        return AuthorizeOutcome.Redirect(RedirectUriRules.AppendQuery(_options.ConsentPath, new KeyValuePair<string, string?>[] { new("request", pending.Id) }));
+        return AuthorizeOutcome.Redirect(RedirectUriRules.AppendQuery(_options.ConsentPath, new KeyValuePair<string, string?>[] { new("request", pending.Id) }), pending.Id);
     }
 
     public async Task<PendingAuthorizationInfo?> GetPendingAsync(string requestId, CancellationToken cancellationToken = default)
@@ -113,14 +120,20 @@ internal sealed class OAuthAuthorizationService : IOAuthAuthorizationService
         if (client is null) return null;
 
         var host = RedirectUriRules.HostOf(p.RedirectUri);
+        var metadataDocument = client.Source == OAuthClientSource.MetadataDocument;
+        Uri? clientIdUri = null;
+        if (metadataDocument) Uri.TryCreate(client.ClientId, UriKind.Absolute, out clientIdUri);
+        metadataDocument = clientIdUri is not null;
         return new PendingAuthorizationInfo
         {
             RequestId = p.Id,
             ClientId = client.ClientId,
             ClientName = client.Name ?? host,
-            ClientLogoUri = client.LogoUri,
+            ClientLogoUri = client.Source == OAuthClientSource.PreRegistered ? client.LogoUri : null,
             ClientUri = client.ClientUri,
             ClientSource = client.Source,
+            ClientIdHost = metadataDocument ? clientIdUri!.IdnHost : null,
+            RedirectOriginDiffersFromClientId = metadataDocument && !SameOrigin(clientIdUri!, p.RedirectUri),
             RedirectHost = host,
             RedirectUri = p.RedirectUri,
             Resource = p.Resource,
@@ -129,14 +142,19 @@ internal sealed class OAuthAuthorizationService : IOAuthAuthorizationService
         };
     }
 
-    public async Task<string?> ApproveAsync(string requestId, string userId, IEnumerable<string>? grantedScopes = null, CancellationToken cancellationToken = default)
+    private static bool SameOrigin(Uri clientId, string redirectUri) =>
+        Uri.TryCreate(redirectUri, UriKind.Absolute, out var r)
+        && string.Equals(clientId.GetLeftPart(UriPartial.Authority), r.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase);
+
+    public async Task<string?> ApproveAsync(string requestId, string userId, HttpContext httpContext, IEnumerable<string>? grantedScopes = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(userId)) throw new ArgumentException("userId is required.", nameof(userId));
+        if (httpContext is null) throw new ArgumentNullException(nameof(httpContext));
         if (string.IsNullOrEmpty(requestId)) return null;
 
         var now = _time.GetUtcNow();
         var peek = await _pending.GetAsync(requestId, now, cancellationToken).ConfigureAwait(false);
-        if (peek is null) return null;
+        if (peek is null || !ConsentBinding.Matches(httpContext, requestId)) return null;
 
         var granted = grantedScopes is null ? peek.Scopes : grantedScopes.Distinct(StringComparer.Ordinal).ToArray();
         if (granted.Count == 0) throw new ArgumentException("At least one scope must be granted; deny the request instead.", nameof(grantedScopes));
@@ -164,6 +182,7 @@ internal sealed class OAuthAuthorizationService : IOAuthAuthorizationService
         var client = await _clients.ResolveAsync(p.ClientId, cancellationToken).ConfigureAwait(false);
         await _grants.UpsertAsync(userId, p.ClientId, client?.Name ?? RedirectUriRules.HostOf(p.RedirectUri), granted, now, cancellationToken).ConfigureAwait(false);
         await _audit.LogAsync(new OAuthAuthorizeApprovedEvent(userId, p.ClientId, ScopeList.Join(granted), now), cancellationToken).ConfigureAwait(false);
+        ConsentBinding.Remove(httpContext, requestId, _options.PendingRequestLifetime);
 
         return RedirectUriRules.AppendQuery(p.RedirectUri, new KeyValuePair<string, string?>[]
         {
@@ -171,28 +190,32 @@ internal sealed class OAuthAuthorizationService : IOAuthAuthorizationService
         });
     }
 
-    public async Task<string?> DenyAsync(string requestId, CancellationToken cancellationToken = default)
+    public async Task<string?> DenyAsync(string requestId, HttpContext httpContext, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(requestId)) return null;
+        if (httpContext is null) throw new ArgumentNullException(nameof(httpContext));
+        if (string.IsNullOrEmpty(requestId) || !ConsentBinding.Matches(httpContext, requestId)) return null;
         var now = _time.GetUtcNow();
         var p = await _pending.TakeAsync(requestId, now, cancellationToken).ConfigureAwait(false);
         if (p is null) return null;
 
         await _audit.LogAsync(new OAuthAuthorizeDeniedEvent(p.ClientId, now), cancellationToken).ConfigureAwait(false);
+        ConsentBinding.Remove(httpContext, requestId, _options.PendingRequestLifetime);
         return RedirectUriRules.AppendQuery(p.RedirectUri, new KeyValuePair<string, string?>[]
         {
             new("error", "access_denied"), new("error_description", "The user denied the request."), new("state", p.State), new("iss", _options.Issuer),
         });
     }
 
-    public async Task<string?> TryAutoApproveAsync(string requestId, string userId, CancellationToken cancellationToken = default)
+    public async Task<string?> TryAutoApproveAsync(string requestId, string userId, HttpContext httpContext, CancellationToken cancellationToken = default)
     {
+        if (httpContext is null) throw new ArgumentNullException(nameof(httpContext));
         if (!_options.RememberConsent || string.IsNullOrEmpty(requestId) || string.IsNullOrEmpty(userId)) return null;
+        if (!ConsentBinding.Matches(httpContext, requestId)) return null;
         var p = await _pending.GetAsync(requestId, _time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
         if (p is null) return null;
         var grant = await _grants.GetAsync(userId, p.ClientId, cancellationToken).ConfigureAwait(false);
         if (grant is null || p.Scopes.Any(s => !grant.Scopes.Contains(s, StringComparer.Ordinal))) return null;
-        return await ApproveAsync(requestId, userId, null, cancellationToken).ConfigureAwait(false);
+        return await ApproveAsync(requestId, userId, httpContext, null, cancellationToken).ConfigureAwait(false);
     }
 }
 
@@ -222,5 +245,16 @@ internal sealed class OAuthGrantService : IOAuthGrantService
         if (removed || killed > 0)
             await _audit.LogAsync(new OAuthGrantRevokedEvent(userId, clientId, now), cancellationToken).ConfigureAwait(false);
         return removed || killed > 0;
+    }
+
+    public async Task<int> RevokeAllAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var now = _time.GetUtcNow();
+        var grants = await _grants.ListForUserAsync(userId, cancellationToken).ConfigureAwait(false);
+        var removed = await _grants.DeleteAllForUserAsync(userId, cancellationToken).ConfigureAwait(false);
+        await _refresh.RevokeForUserAsync(userId, now, cancellationToken).ConfigureAwait(false);
+        foreach (var g in grants)
+            await _audit.LogAsync(new OAuthGrantRevokedEvent(userId, g.ClientId, now), cancellationToken).ConfigureAwait(false);
+        return removed;
     }
 }

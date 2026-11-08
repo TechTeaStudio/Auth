@@ -48,7 +48,7 @@ internal static class Pkce
 
 internal static class RedirectUriRules
 {
-    public const int MaxLength = 2048;
+    public const int MaxLength = 512;
 
     public static bool IsLoopbackHost(string host) =>
         host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host == "127.0.0.1" || host == "[::1]" || host == "::1";
@@ -121,6 +121,7 @@ internal static class OutboundAddressPolicy
             if (b[0] == 198 && (b[1] == 18 || b[1] == 19)) return false;
             if (b[0] == 198 && b[1] == 51 && b[2] == 100) return false;
             if (b[0] == 203 && b[1] == 0 && b[2] == 113) return false;
+            if (b[0] == 192 && b[1] == 88 && b[2] == 99) return false;
             if (b[0] >= 224) return false;
             return true;
         }
@@ -129,9 +130,28 @@ internal static class OutboundAddressPolicy
         {
             if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6Multicast) return false;
             if ((b[0] & 0xFE) == 0xFC) return false;
-            if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0D && b[3] == 0xB8) return false;
-            if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B)
-                return IsPublic(new IPAddress(new[] { b[12], b[13], b[14], b[15] }));
+            // ::/96 (IPv4-compatible, :: and ::1 included)
+            if (b.Take(12).All(x => x == 0)) return false;
+            // ::ffff:0:0:0/96 (SIIT IPv4-translated)
+            if (b.Take(8).All(x => x == 0) && b[8] == 0xFF && b[9] == 0xFF && b[10] == 0 && b[11] == 0) return false;
+            // 64:ff9b::/96 and 64:ff9b:1::/48 (NAT64)
+            if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B && b[4] == 0 && b[5] == 0 && b.Skip(6).Take(6).All(x => x == 0)) return false;
+            if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B && b[4] == 0x00 && b[5] == 0x01) return false;
+            // 2001:db8::/32 documentation, 2001::/32 Teredo, 2001:2::/48 benchmarking, 2001:10::/28 and 2001:20::/28 ORCHID
+            if (b[0] == 0x20 && b[1] == 0x01)
+            {
+                if (b[2] == 0x0D && b[3] == 0xB8) return false;
+                if (b[2] == 0x00 && b[3] == 0x00) return false;
+                if (b[2] == 0x00 && b[3] == 0x02 && b[4] == 0x00 && b[5] == 0x00) return false;
+                if (b[2] == 0x00 && (b[3] & 0xF0) is 0x10 or 0x20) return false;
+            }
+            // 2002::/16 6to4 (embeds an arbitrary IPv4 address)
+            if (b[0] == 0x20 && b[1] == 0x02) return false;
+            // 100::/64 discard-only
+            if (b[0] == 0x01 && b[1] == 0x00 && b.Skip(2).Take(6).All(x => x == 0)) return false;
+            // 3fff::/20 documentation, 5f00::/16 SRv6 SIDs
+            if (b[0] == 0x3F && b[1] == 0xFF && (b[2] & 0xF0) == 0) return false;
+            if (b[0] == 0x5F && b[1] == 0x00) return false;
             return true;
         }
 

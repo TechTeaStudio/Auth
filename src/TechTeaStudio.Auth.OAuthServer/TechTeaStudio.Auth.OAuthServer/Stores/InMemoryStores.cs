@@ -10,6 +10,14 @@ namespace TechTeaStudio.Auth.OAuthServer.Stores;
 public sealed class InMemoryOAuthClientStore : IOAuthClientStore
 {
     private readonly ConcurrentDictionary<string, OAuthClient> _clients = new(StringComparer.Ordinal);
+    private readonly IOAuthGrantStore? _grants;
+
+    public InMemoryOAuthClientStore() : this(null)
+    {
+    }
+
+    /// <param name="grants">Used by <see cref="CleanupUnusedAsync"/> to spare clients that still hold a grant.</param>
+    public InMemoryOAuthClientStore(IOAuthGrantStore? grants) => _grants = grants;
 
     public Task<OAuthClient?> FindAsync(string clientId, CancellationToken cancellationToken = default) =>
         Task.FromResult(_clients.TryGetValue(clientId, out var c) ? c : null);
@@ -18,6 +26,23 @@ public sealed class InMemoryOAuthClientStore : IOAuthClientStore
     {
         _clients[client.ClientId] = client;
         return Task.CompletedTask;
+    }
+
+    public Task TouchAsync(string clientId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        if (_clients.TryGetValue(clientId, out var c)) _clients[clientId] = c with { LastUsedAt = now };
+        return Task.CompletedTask;
+    }
+
+    public async Task<int> CleanupUnusedAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default)
+    {
+        var removed = 0;
+        foreach (var c in _clients.Values.Where(c => c.Source == OAuthClientSource.Dynamic && (c.LastUsedAt ?? c.CreatedAt) < olderThan).ToArray())
+        {
+            if (_grants is not null && await _grants.AnyForClientAsync(c.ClientId, cancellationToken).ConfigureAwait(false)) continue;
+            if (_clients.TryRemove(c.ClientId, out _)) removed++;
+        }
+        return removed;
     }
 }
 
@@ -41,6 +66,9 @@ public sealed class InMemoryOAuthPendingRequestStore : IOAuthPendingRequestStore
         return Task.FromResult<PendingAuthorization?>(p);
     }
 
+    public Task<int> CountForClientAsync(string clientId, DateTimeOffset now, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_items.Values.Count(p => p.ClientId == clientId && p.ExpiresAt > now));
+
     public Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
     {
         var n = 0;
@@ -60,6 +88,11 @@ public sealed class InMemoryOAuthCodeStore : IOAuthCodeStore
     {
         lock (_gate) _items[code.CodeHash] = code;
         return Task.CompletedTask;
+    }
+
+    public Task<AuthorizationCode?> GetAsync(string codeHash, CancellationToken cancellationToken = default)
+    {
+        lock (_gate) return Task.FromResult(_items.TryGetValue(codeHash, out var c) ? c : null);
     }
 
     public Task<CodeConsumeResult?> TryConsumeAsync(string codeHash, DateTimeOffset now, CancellationToken cancellationToken = default)
@@ -88,8 +121,11 @@ public sealed class InMemoryOAuthCodeStore : IOAuthCodeStore
 /// <summary>IN-MEMORY, NOT FOR PRODUCTION. See <see cref="IOAuthRefreshTokenStore"/>.</summary>
 public sealed class InMemoryOAuthRefreshTokenStore : IOAuthRefreshTokenStore
 {
+    private static readonly TimeSpan RevokedStubLifetime = TimeSpan.FromDays(1);
+
     private readonly object _gate = new();
     private readonly Dictionary<string, OAuthRefreshToken> _byHash = new(StringComparer.Ordinal);
+    private readonly Dictionary<Guid, OAuthRefreshFamily> _families = new();
 
     public Task CreateAsync(OAuthRefreshToken token, CancellationToken cancellationToken = default)
     {
@@ -117,20 +153,61 @@ public sealed class InMemoryOAuthRefreshTokenStore : IOAuthRefreshTokenStore
         }
     }
 
-    public Task<int> RevokeFamilyAsync(Guid familyId, DateTimeOffset now, CancellationToken cancellationToken = default) =>
-        Task.FromResult(RevokeWhere(t => t.FamilyId == familyId, now));
-
-    public Task<int> RevokeForUserClientAsync(string userId, string clientId, DateTimeOffset now, CancellationToken cancellationToken = default) =>
-        Task.FromResult(RevokeWhere(t => t.UserId == userId && t.ClientId == clientId, now));
-
-    private int RevokeWhere(Func<OAuthRefreshToken, bool> match, DateTimeOffset now)
+    public Task<int> RevokeFamilyAsync(Guid familyId, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
-            var keys = _byHash.Where(kv => kv.Value.RevokedAt is null && match(kv.Value)).Select(kv => kv.Key).ToArray();
-            foreach (var k in keys) _byHash[k] = _byHash[k] with { RevokedAt = now };
-            return keys.Length;
+            FlagFamily(familyId, now);
+            return Task.FromResult(RevokeTokens(t => t.FamilyId == familyId, now));
         }
+    }
+
+    public Task<int> RevokeForUserClientAsync(string userId, string clientId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            foreach (var f in _families.Values.Where(f => f.UserId == userId && f.ClientId == clientId).ToArray()) FlagFamily(f.FamilyId, now);
+            return Task.FromResult(RevokeTokens(t => t.UserId == userId && t.ClientId == clientId, now));
+        }
+    }
+
+    public Task<int> RevokeForUserAsync(string userId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            foreach (var f in _families.Values.Where(f => f.UserId == userId).ToArray()) FlagFamily(f.FamilyId, now);
+            return Task.FromResult(RevokeTokens(t => t.UserId == userId, now));
+        }
+    }
+
+    public Task<OAuthRefreshFamily?> GetFamilyAsync(Guid familyId, CancellationToken cancellationToken = default)
+    {
+        lock (_gate) return Task.FromResult(_families.TryGetValue(familyId, out var f) ? f : null);
+    }
+
+    public Task EnsureFamilyAsync(OAuthRefreshFamily family, CancellationToken cancellationToken = default)
+    {
+        lock (_gate) _families.TryAdd(family.FamilyId, family);
+        return Task.CompletedTask;
+    }
+
+    private void FlagFamily(Guid familyId, DateTimeOffset now)
+    {
+        if (_families.TryGetValue(familyId, out var f))
+        {
+            if (f.RevokedAt is null) _families[familyId] = f with { RevokedAt = now };
+        }
+        else
+        {
+            _families[familyId] = new OAuthRefreshFamily { FamilyId = familyId, CreatedAt = now, ExpiresAt = now + RevokedStubLifetime, RevokedAt = now };
+        }
+    }
+
+    private int RevokeTokens(Func<OAuthRefreshToken, bool> match, DateTimeOffset now)
+    {
+        var keys = _byHash.Where(kv => kv.Value.RevokedAt is null && match(kv.Value)).Select(kv => kv.Key).ToArray();
+        foreach (var k in keys) _byHash[k] = _byHash[k] with { RevokedAt = now };
+        return keys.Length;
     }
 
     public Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
@@ -139,6 +216,7 @@ public sealed class InMemoryOAuthRefreshTokenStore : IOAuthRefreshTokenStore
         {
             var dead = _byHash.Where(kv => kv.Value.ExpiresAt <= cutoff).Select(kv => kv.Key).ToArray();
             foreach (var k in dead) _byHash.Remove(k);
+            foreach (var f in _families.Values.Where(f => f.ExpiresAt <= cutoff).Select(f => f.FamilyId).ToArray()) _families.Remove(f);
             return Task.FromResult(dead.Length);
         }
     }
@@ -153,6 +231,11 @@ public sealed class InMemoryOAuthGrantStore : IOAuthGrantStore
     public Task<OAuthGrant?> GetAsync(string userId, string clientId, CancellationToken cancellationToken = default)
     {
         lock (_gate) return Task.FromResult(_items.TryGetValue((userId, clientId), out var g) ? g : null);
+    }
+
+    public Task<bool> AnyForClientAsync(string clientId, CancellationToken cancellationToken = default)
+    {
+        lock (_gate) return Task.FromResult(_items.Keys.Any(k => k.Item2 == clientId));
     }
 
     public Task UpsertAsync(string userId, string clientId, string? clientName, IReadOnlyCollection<string> scopes, DateTimeOffset now, CancellationToken cancellationToken = default)
@@ -193,5 +276,15 @@ public sealed class InMemoryOAuthGrantStore : IOAuthGrantStore
     public Task<bool> DeleteAsync(string userId, string clientId, CancellationToken cancellationToken = default)
     {
         lock (_gate) return Task.FromResult(_items.Remove((userId, clientId)));
+    }
+
+    public Task<int> DeleteAllForUserAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            var keys = _items.Keys.Where(k => k.Item1 == userId).ToArray();
+            foreach (var k in keys) _items.Remove(k);
+            return Task.FromResult(keys.Length);
+        }
     }
 }

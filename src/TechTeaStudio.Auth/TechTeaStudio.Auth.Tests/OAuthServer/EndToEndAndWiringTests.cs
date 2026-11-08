@@ -31,7 +31,7 @@ public class OAuthServerEndToEndTests
         var consent = OAuthTestHost.Absolute(authorize);
         consent.AbsolutePath.Should().Be("/oauth/consent");
 
-        var approve = await host.Client.GetAsync(consent.PathAndQuery + "&user=carol");
+        var approve = await host.ConsentAsync(OAuthTestHost.QueryOf(consent)["request"], user: "carol");
         approve.StatusCode.Should().Be(HttpStatusCode.Found);
         var back = OAuthTestHost.QueryOf(OAuthTestHost.Absolute(approve));
         back["state"].Should().Be("st-123");
@@ -86,7 +86,10 @@ public class OAuthServerWiringTests
         o.AuthorizationCodeLifetime.Should().Be(TimeSpan.FromSeconds(60));
         o.PendingRequestLifetime.Should().Be(TimeSpan.FromMinutes(10));
         o.RefreshRotationGrace.Should().Be(TimeSpan.FromSeconds(30));
-        o.EnableDynamicRegistration.Should().BeTrue();
+        o.EnableDynamicRegistration.Should().BeFalse();
+        o.RefreshFamilyAbsoluteLifetime.Should().Be(TimeSpan.FromDays(90));
+        o.MaxRedirectUrisPerClient.Should().Be(5);
+        o.MaxPendingRequestsPerClient.Should().Be(50);
         o.RememberConsent.Should().BeFalse();
         o.MetadataCacheMaxAge.Should().Be(TimeSpan.FromSeconds(300));
     }
@@ -181,6 +184,7 @@ public class OAuthServerWiringTests
         public Task SaveAsync(AuthorizationCode code, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<CodeConsumeResult?> TryConsumeAsync(string codeHash, DateTimeOffset now, CancellationToken cancellationToken = default) => Task.FromResult<CodeConsumeResult?>(null);
         public Task<int> CleanupExpiredAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<AuthorizationCode?> GetAsync(string codeHash, CancellationToken cancellationToken = default) => Task.FromResult<AuthorizationCode?>(null);
     }
 
     private sealed class SpyGrantStore : IOAuthGrantStore
@@ -196,5 +200,7 @@ public class OAuthServerWiringTests
         public Task TouchAsync(string userId, string clientId, DateTimeOffset now, CancellationToken cancellationToken = default) => _inner.TouchAsync(userId, clientId, now, cancellationToken);
         public Task<IReadOnlyList<OAuthGrant>> ListForUserAsync(string userId, CancellationToken cancellationToken = default) => _inner.ListForUserAsync(userId, cancellationToken);
         public Task<bool> DeleteAsync(string userId, string clientId, CancellationToken cancellationToken = default) => _inner.DeleteAsync(userId, clientId, cancellationToken);
+        public Task<bool> AnyForClientAsync(string clientId, CancellationToken cancellationToken = default) => _inner.AnyForClientAsync(clientId, cancellationToken);
+        public Task<int> DeleteAllForUserAsync(string userId, CancellationToken cancellationToken = default) => _inner.DeleteAllForUserAsync(userId, cancellationToken);
     }
 }

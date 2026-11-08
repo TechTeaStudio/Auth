@@ -25,19 +25,20 @@ public sealed class OAuthClientEntity
     public string? SecretHash { get; set; }
     public int Source { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
 
     public OAuthClient ToDomain() => new()
     {
         ClientId = ClientId, Name = Name, LogoUri = LogoUri, ClientUri = ClientUri,
         RedirectUris = RedirectUris.Split('\n', StringSplitOptions.RemoveEmptyEntries),
-        SecretHash = SecretHash, Source = (OAuthClientSource)Source, CreatedAt = CreatedAt,
+        SecretHash = SecretHash, Source = (OAuthClientSource)Source, CreatedAt = CreatedAt, LastUsedAt = LastUsedAt,
     };
 
     public static OAuthClientEntity FromDomain(OAuthClient c) => new()
     {
         ClientId = c.ClientId, Name = c.Name, LogoUri = c.LogoUri, ClientUri = c.ClientUri,
         RedirectUris = string.Join('\n', c.RedirectUris),
-        SecretHash = c.SecretHash, Source = (int)c.Source, CreatedAt = c.CreatedAt,
+        SecretHash = c.SecretHash, Source = (int)c.Source, CreatedAt = c.CreatedAt, LastUsedAt = c.LastUsedAt,
     };
 }
 
@@ -125,6 +126,27 @@ public sealed class OAuthRefreshTokenEntity
     };
 }
 
+public sealed class OAuthRefreshFamilyEntity
+{
+    public Guid FamilyId { get; set; }
+    public string UserId { get; set; } = string.Empty;
+    public string ClientId { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    public string ConcurrencyStamp { get; set; } = Guid.NewGuid().ToString();
+
+    public OAuthRefreshFamily ToDomain() => new()
+    {
+        FamilyId = FamilyId, UserId = UserId, ClientId = ClientId, CreatedAt = CreatedAt, ExpiresAt = ExpiresAt, RevokedAt = RevokedAt,
+    };
+
+    public static OAuthRefreshFamilyEntity FromDomain(OAuthRefreshFamily f) => new()
+    {
+        FamilyId = f.FamilyId, UserId = f.UserId, ClientId = f.ClientId, CreatedAt = f.CreatedAt, ExpiresAt = f.ExpiresAt, RevokedAt = f.RevokedAt,
+    };
+}
+
 public sealed class OAuthGrantEntity
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -207,6 +229,18 @@ public static class OAuthServerModelBuilderExtensions
         refresh.HasIndex(e => new { e.UserId, e.ClientId });
         refresh.HasIndex(e => e.ExpiresAt);
 
+        var family = modelBuilder.Entity<OAuthRefreshFamilyEntity>();
+        family.ToTable(prefix + "Families");
+        family.HasKey(e => e.FamilyId);
+        family.Property(e => e.UserId).IsRequired().HasMaxLength(256);
+        family.Property(e => e.ClientId).IsRequired().HasMaxLength(512);
+        family.Property(e => e.ConcurrencyStamp).IsRequired().HasMaxLength(64).IsConcurrencyToken();
+        family.HasIndex(e => new { e.UserId, e.ClientId });
+        family.HasIndex(e => e.ExpiresAt);
+        family.Property(e => e.CreatedAt).HasConversion(utcTicks);
+        family.Property(e => e.ExpiresAt).HasConversion(utcTicks);
+        family.Property(e => e.RevokedAt).HasConversion(utcTicks);
+
         var grant = modelBuilder.Entity<OAuthGrantEntity>();
         grant.ToTable(prefix + "Grants");
         grant.HasKey(e => e.Id);
@@ -218,6 +252,7 @@ public static class OAuthServerModelBuilderExtensions
         grant.HasIndex(e => new { e.UserId, e.ClientId }).IsUnique();
 
         client.Property(e => e.CreatedAt).HasConversion(utcTicks);
+        client.Property(e => e.LastUsedAt).HasConversion(utcTicks);
         pending.Property(e => e.CreatedAt).HasConversion(utcTicks);
         pending.Property(e => e.ExpiresAt).HasConversion(utcTicks);
         code.Property(e => e.CreatedAt).HasConversion(utcTicks);

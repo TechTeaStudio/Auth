@@ -23,7 +23,27 @@ public sealed record OAuthClient
     public OAuthClientSource Source { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 
+    /// <summary>Last authorize or token request seen for the client (recorded at most hourly). <c>null</c> until first use.</summary>
+    public DateTimeOffset? LastUsedAt { get; init; }
+
     public bool IsConfidential => SecretHash is not null;
+}
+
+/// <summary>
+/// One refresh-token family. It exists so a revocation can be recorded before, or while, the family's tokens are
+/// created: every revoke sets <see cref="RevokedAt"/> and issuance re-checks it after writing a token.
+/// </summary>
+public sealed record OAuthRefreshFamily
+{
+    public Guid FamilyId { get; init; }
+    public string UserId { get; init; } = string.Empty;
+    public string ClientId { get; init; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>End of the family's absolute lifetime; sliding refresh cannot extend past it.</summary>
+    public DateTimeOffset ExpiresAt { get; init; }
+
+    public DateTimeOffset? RevokedAt { get; init; }
 }
 
 /// <summary>A scope the server can grant, with the text the consent screen shows.</summary>
@@ -105,7 +125,16 @@ public sealed record PendingAuthorizationInfo
     public string RequestId { get; init; } = string.Empty;
     public string ClientId { get; init; } = string.Empty;
     public string ClientName { get; init; } = string.Empty;
+
+    /// <summary>Only ever set for pre-registered clients; a self-asserted logo is a spoofing tool.</summary>
     public string? ClientLogoUri { get; init; }
+
+    /// <summary>Host of the https <c>client_id</c> for metadata-document clients; <c>null</c> otherwise.</summary>
+    public string? ClientIdHost { get; init; }
+
+    /// <summary>Metadata-document clients only: the redirect URI is on a different origin than the client_id URL. The consent screen should warn.</summary>
+    public bool RedirectOriginDiffersFromClientId { get; init; }
+
     public string? ClientUri { get; init; }
     public OAuthClientSource ClientSource { get; init; }
 

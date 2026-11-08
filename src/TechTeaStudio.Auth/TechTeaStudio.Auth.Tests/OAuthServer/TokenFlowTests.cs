@@ -146,14 +146,14 @@ public class AuthorizationCodeTests
     }
 
     [Fact]
-    public async Task Wrong_pkce_verifier_fails_and_burns_the_code()
+    public async Task Wrong_pkce_verifier_fails_without_consuming_the_code()
     {
         await using var host = await OAuthTestHost.StartAsync();
         var (code, verifier, redirect) = await host.ApproveAsync();
         var wrong = OAuthTestHost.NewPkce().Verifier;
 
         (await host.ExchangeAsync(code, wrong, redirect)).Str("error").Should().Be("invalid_grant");
-        (await host.ExchangeAsync(code, verifier, redirect)).Str("error").Should().Be("invalid_grant");
+        (await host.ExchangeAsync(code, verifier, redirect)).Status.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -221,9 +221,9 @@ public class AuthorizationCodeTests
 
         using var scope = host.Scope();
         var svc = scope.ServiceProvider.GetRequiredService<IOAuthAuthorizationService>();
-        var act = () => svc.ApproveAsync(id, "user-1", new[] { "tasks:read", "tasks:write" });
+        var act = () => svc.ApproveAsync(id, "user-1", host.BoundContext(), new[] { "tasks:read", "tasks:write" });
         await act.Should().ThrowAsync<ArgumentException>();
-        var none = () => svc.ApproveAsync(id, "user-1", Array.Empty<string>());
+        var none = () => svc.ApproveAsync(id, "user-1", host.BoundContext(), Array.Empty<string>());
         await none.Should().ThrowAsync<ArgumentException>();
         (await svc.GetPendingAsync(id)).Should().NotBeNull("a host bug must not burn the user's request");
     }
@@ -235,7 +235,7 @@ public class AuthorizationCodeTests
         var id = await host.StartRequestAsync(OAuthTestHost.BaseQuery(OAuthTestHost.NewPkce().Challenge));
         using var scope = host.Scope();
         var svc = scope.ServiceProvider.GetRequiredService<IOAuthAuthorizationService>();
-        var act = () => svc.ApproveAsync(id, "");
+        var act = () => svc.ApproveAsync(id, "", host.BoundContext());
         await act.Should().ThrowAsync<ArgumentException>();
     }
 
@@ -475,7 +475,8 @@ public class RevocationTests
     [Fact]
     public async Task Another_client_cannot_revoke_the_token()
     {
-        await using var host = await OAuthTestHost.StartAsync();
+        await using var host = await OAuthTestHost.StartAsync(o =>
+            o.Clients.Add(new OAuthClientOptions { ClientId = "someone-else", RedirectUris = { OAuthTestHost.ClaudeRedirect } }));
         var t = await host.LoginAsync();
         var rev = await host.PostFormAsync(OAuthServerPaths.Revoke, new Dictionary<string, string> { ["token"] = t.Refresh, ["client_id"] = "someone-else" });
         rev.Status.Should().Be(HttpStatusCode.OK);

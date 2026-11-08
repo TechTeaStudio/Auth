@@ -55,6 +55,12 @@ public sealed class OAuthTestHost : IAsyncDisposable
     public const string ClientId = "test-client";
     public const string ConfidentialClientId = "conf-client";
     public const string ConfidentialRedirect = "https://conf.example.com/cb";
+    public const string ConfidentialClientId2 = "conf-client-2";
+    public const string CookieName = "__Host-tts-oauth-consent";
+
+    public sealed class EndpointMarker { }
+
+    public string? Cookie { get; set; }
 
     public IHost Host { get; private set; } = null!;
     public HttpClient Client { get; private set; } = null!;
@@ -75,6 +81,8 @@ public sealed class OAuthTestHost : IAsyncDisposable
                 web.ConfigureServices(s =>
                 {
                     s.AddRouting();
+                    s.AddAuthentication();
+                    s.AddAuthorization();
                     s.AddSingleton<TimeProvider>(t.Time);
                     s.AddSingleton<IAuthAuditLogger>(t.Audit);
                     s.AddSingleton<IClientMetadataFetcher>(t.Fetcher);
@@ -92,6 +100,13 @@ public sealed class OAuthTestHost : IAsyncDisposable
                         o.ProtectedResources.Add(Resource2);
                         o.Scopes.Add("tasks:read", "Read your tasks").Add("tasks:write", "Create and edit your tasks");
                         o.ConsentPath = "/oauth/consent";
+                        o.EnableDynamicRegistration = true;
+                        o.Clients.Add(new OAuthClientOptions
+                        {
+                            ClientId = ConfidentialClientId2,
+                            ClientSecret = "s3cret2",
+                            RedirectUris = { ConfidentialRedirect },
+                        });
                         o.Clients.Add(new OAuthClientOptions
                         {
                             ClientId = ClientId,
@@ -112,11 +127,14 @@ public sealed class OAuthTestHost : IAsyncDisposable
                 web.Configure(app =>
                 {
                     app.UseRouting();
+                    app.UseAuthentication();
+                    app.UseAuthorization();
                     app.UseEndpoints(e =>
                     {
-                        e.MapTechTeaStudioOAuthServer();
-                        e.MapGet("/oauth/consent", ConsentAsync);
+                        e.MapTechTeaStudioOAuthServer().WithMetadata(new EndpointMarker());
+                        e.MapPost("/oauth/consent", ConsentAsync);
                         e.MapGet("/oauth/pending", PendingAsync);
+                        e.MapGet("/mcp", () => "ok").RequireAuthorization(p => p.AddAuthenticationSchemes("mcp").RequireAuthenticatedUser());
                     });
                 });
             })
@@ -128,17 +146,18 @@ public sealed class OAuthTestHost : IAsyncDisposable
     private static async Task ConsentAsync(HttpContext ctx)
     {
         var svc = ctx.RequestServices.GetRequiredService<IOAuthAuthorizationService>();
-        var id = ctx.Request.Query["request"].ToString();
-        var action = ctx.Request.Query["action"].ToString();
-        var user = ctx.Request.Query["user"].ToString();
+        var form = await ctx.Request.ReadFormAsync();
+        var id = form["request"].ToString();
+        var action = form["action"].ToString();
+        var user = form["user"].ToString();
         if (user.Length == 0) user = "user-1";
-        var grant = ctx.Request.Query["grant"].ToString();
+        var grant = form["grant"].ToString();
 
         var url = action switch
         {
-            "deny" => await svc.DenyAsync(id),
-            "auto" => await svc.TryAutoApproveAsync(id, user),
-            _ => await svc.ApproveAsync(id, user, grant.Length == 0 ? null : grant.Split(' ')),
+            "deny" => await svc.DenyAsync(id, ctx),
+            "auto" => await svc.TryAutoApproveAsync(id, user, ctx),
+            _ => await svc.ApproveAsync(id, user, ctx, grant.Length == 0 ? null : grant.Split(' ')),
         };
         if (url is null)
         {
@@ -158,6 +177,14 @@ public sealed class OAuthTestHost : IAsyncDisposable
     }
 
     public IServiceScope Scope() => Host.Services.CreateScope();
+
+    public HttpContext BoundContext(string? cookie = null)
+    {
+        var ctx = new DefaultHttpContext();
+        var c = cookie ?? Cookie;
+        if (c is not null) ctx.Request.Headers["Cookie"] = c;
+        return ctx;
+    }
 
     public static (string Verifier, string Challenge) NewPkce()
     {
@@ -181,8 +208,23 @@ public sealed class OAuthTestHost : IAsyncDisposable
     public static string Qs(IDictionary<string, string?> q) =>
         "?" + string.Join('&', q.Where(kv => kv.Value is not null).Select(kv => Uri.EscapeDataString(kv.Key) + "=" + Uri.EscapeDataString(kv.Value!)));
 
-    public Task<HttpResponseMessage> AuthorizeAsync(IDictionary<string, string?> query) =>
-        Client.GetAsync(OAuthServerPaths.Authorize + Qs(query));
+    public async Task<HttpResponseMessage> AuthorizeAsync(IDictionary<string, string?> query)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, OAuthServerPaths.Authorize + Qs(query));
+        if (Cookie is not null) req.Headers.Add("Cookie", Cookie);
+        var r = await Client.SendAsync(req);
+        CaptureCookie(r);
+        return r;
+    }
+
+    public void CaptureCookie(HttpResponseMessage r)
+    {
+        if (!r.Headers.TryGetValues("Set-Cookie", out var cookies)) return;
+        var mine = cookies.FirstOrDefault(c => c.StartsWith(CookieName + "=", StringComparison.Ordinal));
+        if (mine is null) return;
+        var pair = mine.Split(';')[0];
+        Cookie = pair.EndsWith('=') ? null : pair;
+    }
 
     public static Uri Absolute(HttpResponseMessage r)
     {
@@ -200,10 +242,17 @@ public sealed class OAuthTestHost : IAsyncDisposable
         return QueryOf(Absolute(r))["request"];
     }
 
-    public async Task<HttpResponseMessage> ConsentAsync(string requestId, string action = "approve", string user = "user-1", string? grant = null)
+    public async Task<HttpResponseMessage> ConsentAsync(
+        string requestId, string action = "approve", string user = "user-1", string? grant = null, string? cookie = null, bool sendCookie = true)
     {
-        var q = new Dictionary<string, string?> { ["request"] = requestId, ["action"] = action, ["user"] = user, ["grant"] = grant };
-        return await Client.GetAsync("/oauth/consent" + Qs(q));
+        var form = new Dictionary<string, string> { ["request"] = requestId, ["action"] = action, ["user"] = user };
+        if (grant is not null) form["grant"] = grant;
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/oauth/consent") { Content = new FormUrlEncodedContent(form) };
+        var c = cookie ?? Cookie;
+        if (sendCookie && c is not null) req.Headers.Add("Cookie", c);
+        var r = await Client.SendAsync(req);
+        if (cookie is null) CaptureCookie(r);
+        return r;
     }
 
     public async Task<(string Code, string Verifier, string Redirect)> ApproveAsync(

@@ -60,8 +60,12 @@ public static class OAuthServerServiceCollectionExtensions
         return new OAuthServerBuilder(services);
     }
 
-    internal static string? Validate(OAuthServerOptions o)
+    internal static string? Validate(OAuthServerOptions o, string? firstPartyAudience = null)
     {
+        if (!string.IsNullOrEmpty(firstPartyAudience) && o.ProtectedResources.Contains(firstPartyAudience, StringComparer.Ordinal))
+            return "A protected resource must not equal AuthOptions.Jwt.Audience: first-party tokens and OAuth access tokens would be interchangeable.";
+        if (o.RefreshFamilyAbsoluteLifetime <= TimeSpan.Zero || o.MaxPendingRequestsPerClient <= 0 || o.MaxConcurrentMetadataFetches <= 0)
+            return "RefreshFamilyAbsoluteLifetime, MaxPendingRequestsPerClient and MaxConcurrentMetadataFetches must be positive.";
         if (!Uri.TryCreate(o.Issuer, UriKind.Absolute, out var issuer) || (issuer.Scheme != Uri.UriSchemeHttps && !RedirectUriRules.IsLoopbackHost(issuer.Host)) || issuer.Query.Length > 0 || issuer.Fragment.Length > 0)
             return "Issuer must be an absolute https URL (http only for loopback) without query or fragment.";
         if (o.ProtectedResources.Count == 0) return "At least one protected resource is required.";
@@ -98,9 +102,13 @@ public static class OAuthServerServiceCollectionExtensions
 
 internal sealed class OAuthServerOptionsValidator : IValidateOptions<OAuthServerOptions>
 {
+    private readonly IOptions<AuthOptions>? _auth;
+
+    public OAuthServerOptionsValidator(IOptions<AuthOptions>? auth = null) => _auth = auth;
+
     public ValidateOptionsResult Validate(string? name, OAuthServerOptions options)
     {
-        var problem = OAuthServerServiceCollectionExtensions.Validate(options);
+        var problem = OAuthServerServiceCollectionExtensions.Validate(options, _auth?.Value.Jwt.Audience);
         return problem is null ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problem);
     }
 }
