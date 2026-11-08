@@ -3,6 +3,28 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-11-08
+
+An OAuth 2.1 authorization server module, so a host app can let MCP clients (Claude, ChatGPT, Claude Code, Cursor) sign its users in with one click. It is the opposite direction of the `TechTeaStudio.Auth.OAuth.*` packages (those sign a user in WITH Google or GitHub). All packages version-aligned; the other packages carry no code change except the new audit events in the core package.
+
+### Added
+
+- **`TechTeaStudio.Auth.OAuthServer`** - the module. `services.AddTechTeaStudioOAuthServer(o => ...)` returns an `IOAuthServerBuilder` (`Use*Store` swaps), `app.MapTechTeaStudioOAuthServer()` maps RFC 8414 metadata, `GET /oauth/authorize`, `POST /oauth/token`, `POST /oauth/revoke` and (toggle `EnableDynamicRegistration`, default on) `POST /oauth/register`. Profile: MCP authorization spec 2026-07-28 - authorization code with PKCE S256 only, RFC 8707 `resource` required and matched exactly against host-configured protected resources (the access token `aud` is that resource), RFC 9207 `iss` on every authorization response, Client ID Metadata Documents, and RFC 7591 registration for public clients.
+- **Two-step authorize.** The module validates the request and stores it as a single-use pending request (10 minutes), then redirects to the host's `ConsentPath?request=<id>`, so no long query string has to survive the host's login redirect. The host calls `IOAuthAuthorizationService` (`GetPendingAsync`, `ApproveAsync` with optional downscoping, `DenyAsync`, `TryAutoApproveAsync` for opt-in `RememberConsent`). Errors before the client and redirect URI are trusted are a plain 400, never a redirect.
+- **Client resolution** in this order: pre-registered (options or `IOAuthClientStore`), Client ID Metadata Document (an https `client_id` fetched through `IClientMetadataFetcher`), then dynamic registration. The default fetcher is https-only, no redirects, no proxy, 5 s timeout, 64 KB cap, with the SSRF guard applied at connect time through `SocketsHttpHandler.ConnectCallback` (loopback, private, link-local, multicast, unique-local, CGNAT, documentation and IPv4-mapped addresses are refused, so DNS rebinding cannot slip through). Documents are cached by `Cache-Control` up to 24 h; failures are cached 30 s.
+- **Redirect URIs**: https or loopback only, exact match, except that a registered loopback URI matches on any port (RFC 8252 section 7.3).
+- **Tokens.** Authorization codes: 256-bit, stored hashed, single use, 60 s; a replayed code revokes the refresh family issued from it. Access tokens go through `ITokenProvider` with a `TokenDescriptor` (audience = resource, issuer = the configured issuer, claims `client_id` and `scope`). Refresh tokens rotate on every use and are stored hashed. A token rotated less than `RefreshRotationGrace` (30 s) ago answers `invalid_grant` without burning its family (a client retrying after a network error survives); after the grace the whole family is burned. Dead tokens always answer `invalid_grant`.
+- **Grants.** `IOAuthGrantStore` keeps one row per (user, client); `IOAuthGrantService.ListForUserAsync` / `RevokeAsync` back a "connected apps" page and revoking kills the client's refresh families.
+- **Stores.** Interfaces for clients, pending requests, codes, refresh tokens and grants under `Abstractions/`, in-memory implementations for tests and samples, all clocked through `TimeProvider` (`Microsoft.Bcl.TimeProvider` on net6.0).
+- **`TechTeaStudio.Auth.OAuthServer.EFCore`** - `modelBuilder.AddTechTeaStudioOAuthServerTables(prefix = "TtsOAuth")` (tables `{prefix}Clients`, `PendingRequests`, `Codes`, `RefreshTokens`, `Grants`), the five `EfCoreOAuth*Store<TContext>` classes and `builder.UseEfCoreStores<TContext>()`. Instants are stored as UTC ticks (bigint) so expiry and cleanup queries translate on every provider including SQLite. Single-use and compare-and-swap operations rest on `ConcurrencyStamp` tokens and behave the same on net6.0.
+- **Audit events** in the core package: `oauth.authorize.requested|approved|denied`, `oauth.code.exchanged|replayed`, `oauth.refresh.rotated|reused`, `oauth.family.burned`, `oauth.client.registered`, `oauth.client.metadata_fetch_failed`, `oauth.grant.revoked`. No event carries a token, code or verifier.
+- `docs/OAUTH-SERVER.md`: how a host wires it, the consent page contract, endpoint list, security notes.
+
+### Notes
+
+- Rate limiting and CORS are the host's job. The endpoint paths are constants in `OAuthServerPaths`; `MapTechTeaStudioOAuthServer()` returns a convention builder so `RequireRateLimiting` / `RequireCors` apply to every mapped endpoint.
+- Access tokens are self-contained JWTs and are not individually revocable; revoking a grant or a family stops refreshing, and the access token lives out its (default 60 minute) lifetime.
+
 ## [0.11.1] - 2026-10-02
 
 A pre-publication review of 0.11.0, which never reached nuget.org (it was only ever consumed from a local feed). This is the first published version after 0.10.0, so everything listed under 0.11.0 below ships here too. All sibling packages version-aligned.

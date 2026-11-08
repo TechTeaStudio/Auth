@@ -46,6 +46,8 @@
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.GitHub\TechTeaStudio.Auth.OAuth.GitHub\TechTeaStudio.Auth.OAuth.GitHub.csproj" />
     <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuth.Microsoft\TechTeaStudio.Auth.OAuth.Microsoft\TechTeaStudio.Auth.OAuth.Microsoft.csproj" />
     <ProjectReference Include="..\..\TechTeaStudio.Auth.Providers.Telegram\TechTeaStudio.Auth.Providers.Telegram\TechTeaStudio.Auth.Providers.Telegram.csproj" />
+    <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuthServer\TechTeaStudio.Auth.OAuthServer\TechTeaStudio.Auth.OAuthServer.csproj" />
+    <ProjectReference Include="..\..\TechTeaStudio.Auth.OAuthServer.EFCore\TechTeaStudio.Auth.OAuthServer.EFCore\TechTeaStudio.Auth.OAuthServer.EFCore.csproj" />
   </ItemGroup>
 
 </Project>

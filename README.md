@@ -648,6 +648,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 - [docs/RECIPES.md](docs/RECIPES.md): common patterns: login, refresh, revoke, reset, 2FA, API keys, audit.
 - [docs/OAUTH.md](docs/OAUTH.md): Google / GitHub / Apple sign-in via the OAuth sibling packages.
+- [docs/OAUTH-SERVER.md](docs/OAUTH-SERVER.md): being the OAuth 2.1 authorization server for MCP clients (Claude, ChatGPT, Claude Code, Cursor) with `TechTeaStudio.Auth.OAuthServer`.
 - [docs/MIGRATION-Hyperion.md](docs/MIGRATION-Hyperion.md): moving Hyperion Omni Client onto the library.
 - [docs/MIGRATION-Pello.md](docs/MIGRATION-Pello.md): moving Pello onto the library.
 - [SECURITY.md](SECURITY.md): threat model and reporting policy.

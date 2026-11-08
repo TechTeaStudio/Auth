@@ -41,3 +41,60 @@ public sealed record AccountLockedEvent(string UserId, DateTimeOffset LockoutEnd
 {
     public override string Kind => "account.locked";
 }
+
+// OAuth authorization server events (TechTeaStudio.Auth.OAuthServer). None of them carries a token, code or verifier.
+
+public sealed record OAuthAuthorizeRequestedEvent(string ClientId, string Resource, string Scope, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.authorize.requested";
+}
+
+public sealed record OAuthAuthorizeApprovedEvent(string UserId, string ClientId, string Scope, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.authorize.approved";
+}
+
+public sealed record OAuthAuthorizeDeniedEvent(string ClientId, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.authorize.denied";
+}
+
+public sealed record OAuthCodeExchangedEvent(string UserId, string ClientId, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.code.exchanged";
+}
+
+public sealed record OAuthCodeReplayedEvent(string UserId, string ClientId, Guid FamilyId, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.code.replayed";
+}
+
+public sealed record OAuthRefreshRotatedEvent(string UserId, string ClientId, Guid FamilyId, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.refresh.rotated";
+}
+
+public sealed record OAuthRefreshReusedEvent(string UserId, string ClientId, Guid FamilyId, bool WithinGrace, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.refresh.reused";
+}
+
+public sealed record OAuthFamilyBurnedEvent(string UserId, string ClientId, Guid FamilyId, string Reason, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.family.burned";
+}
+
+public sealed record OAuthClientRegisteredEvent(string ClientId, string? ClientName, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.client.registered";
+}
+
+public sealed record OAuthClientMetadataFetchFailedEvent(string ClientIdUrl, string Reason, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.client.metadata_fetch_failed";
+}
+
+public sealed record OAuthGrantRevokedEvent(string UserId, string ClientId, DateTimeOffset At) : AuthEvent(At)
+{
+    public override string Kind => "oauth.grant.revoked";
+}
