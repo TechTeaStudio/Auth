@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net6.0;net8.0;net9.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>net6.0;net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth</PackageId>
-    <Version>0.12.0</Version>
+    <Version>0.12.1</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>Drop-in authentication primitives for ASP.NET Core. JWT (HS256/RS256/ES256) with signing-key rotation, PBKDF2-SHA256 password hashing, refresh tokens, audit, lockout, TOTP, recovery codes, cookie + bearer + API-key schemes.</Description>
@@ -88,6 +88,13 @@ Full changelog: https://github.com/TechTeaStudio/Auth/blob/main/CHANGELOG.md
     consumers still on the 9.x shared framework.
   -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.2.0" />
+  </ItemGroup>
+
+  <!-- net11 keeps the same floor as net10, for the same reason: no consumer is forced
+       onto a newer JwtBearer than the code needs. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.2.0" />
   </ItemGroup>

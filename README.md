@@ -630,7 +630,7 @@ dotnet build src/TechTeaStudio.Auth/TechTeaStudio.Auth.sln
 dotnet test  src/TechTeaStudio.Auth/TechTeaStudio.Auth.sln
 ```
 
-The library multi-targets `net6.0;net8.0;net9.0;net10.0`. `net7.0` is intentionally skipped (EOL). The test project targets `net8.0;net9.0;net10.0` only.
+The library multi-targets `net6.0;net8.0;net9.0;net10.0;net11.0`. `net7.0` is intentionally skipped (EOL). The test project targets `net8.0;net9.0;net10.0;net11.0` only.
 
 ## Versioning & release
 

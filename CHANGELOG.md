@@ -3,6 +3,13 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-11-11
+
+### Added
+
+- **`net11.0` target** in every package, alongside `net6.0`, `net8.0`, `net9.0` and `net10.0`. No API or behaviour change. The `net11.0` assets keep the dependency floor of `net10.0` (JwtBearer 9.0.0, `Microsoft.Extensions.Http` 9.0.0, EF Core 10.0.0), so a .NET 11 consumer is free to stay on EF Core 10 or move to EF Core 11.
+- The test project also runs on `net11.0`, there against EF Core 11.0.0 (InMemory and SQLite): all 601 tests pass on `net8.0`, `net9.0`, `net10.0` and `net11.0`.
+
 ## [0.12.0] - 2026-11-08
 
 An OAuth 2.1 authorization server module, so a host app can let MCP clients (Claude, ChatGPT, Claude Code, Cursor) sign its users in with one click. It is the opposite direction of the `TechTeaStudio.Auth.OAuth.*` packages (those sign a user in WITH Google or GitHub). All packages version-aligned; the other packages carry no code change except the new audit events in the core package.
