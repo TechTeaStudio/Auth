@@ -13,6 +13,10 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- A switch that does not cover every case (CS8509) or every null input (CS8655) is an
+         error in the tests. The net11.0 union tests rely on it: an exhaustive switch over a
+         union must stop compiling the day a case is added. -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS8509;CS8655</WarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

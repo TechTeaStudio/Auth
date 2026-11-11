@@ -27,8 +27,35 @@ public sealed record ExternalSignInOutcome
     /// <summary>Populated when <see cref="Status"/> is <see cref="ExternalSignInStatus.Failed"/> — short stable string suitable for switching client-side.</summary>
     public string? Error { get; init; }
 
-    internal static ExternalSignInOutcome Authenticated(TokenPair tokens) =>
-        new() { Status = ExternalSignInStatus.Authenticated, Tokens = tokens };
+    /// <summary>
+    /// Id of the user <see cref="Tokens"/> were issued for; set by the orchestrator on every
+    /// <see cref="ExternalSignInStatus.Authenticated"/> outcome. Internal plumbing for the
+    /// net11.0 union methods, which hand it to the caller. It is deliberately not part of the
+    /// record's public shape: it is not printed by <c>ToString()</c> (only public members are),
+    /// not serialized, and not compared by <see cref="Equals(ExternalSignInOutcome?)"/>.
+    /// </summary>
+    internal string? UserId { get; init; }
+
+    /// <summary>
+    /// Value equality over the six public properties, the same members the compiler-generated
+    /// equality compared before <see cref="UserId"/> existed. Written by hand only to keep the
+    /// internal <see cref="UserId"/> out of it; a new public property must be added here.
+    /// </summary>
+    public bool Equals(ExternalSignInOutcome? other) =>
+        other is not null
+        && Status == other.Status
+        && EqualityComparer<TokenPair?>.Default.Equals(Tokens, other.Tokens)
+        && ContinuationToken == other.ContinuationToken
+        && Email == other.Email
+        && EqualityComparer<ExternalLoginInfo?>.Default.Equals(Profile, other.Profile)
+        && Error == other.Error;
+
+    /// <summary>Hash over the same six public properties as <see cref="Equals(ExternalSignInOutcome?)"/>.</summary>
+    public override int GetHashCode() =>
+        HashCode.Combine(Status, Tokens, ContinuationToken, Email, Profile, Error);
+
+    internal static ExternalSignInOutcome Authenticated(TokenPair tokens, string userId) =>
+        new() { Status = ExternalSignInStatus.Authenticated, Tokens = tokens, UserId = userId };
 
     internal static ExternalSignInOutcome RequiresPassword(string continuationToken, string email) =>
         new() { Status = ExternalSignInStatus.RequiresPassword, ContinuationToken = continuationToken, Email = email };

@@ -280,6 +280,57 @@ builder.Services.AddTechTeaStudioAuth(builder.Configuration)
     .UseRefreshClaimsResolver<MyClaimsResolver>();
 ```
 
+#### net11.0: exhaustive results
+
+On `net11.0` the library also returns its multi-outcome results as C# 15 unions, so the compiler checks that every outcome is handled and each case carries only the data that exists for it. These types and methods are in the `net11.0` asset only; on `net6.0` through `net10.0` nothing changes and `RotateAsync` / `RotateWithOutcomeAsync` / `SignInAsync` stay the way to go.
+
+```csharp
+// net11.0 only
+[HttpPost("refresh")]
+public async Task<IActionResult> Refresh([FromBody] RefreshRequest req, CancellationToken ct) =>
+    await refresh.RotateAsUnionAsync(req.RefreshToken, ct) switch
+    {
+        RefreshRotated ok   => Ok(new { ok.Tokens.AccessToken, ok.Tokens.RefreshToken, ok.Tokens.RefreshTokenExpiresAt }),
+        RefreshTokenInvalid => Unauthorized(new { error = "invalid_refresh_token" }),
+        RefreshTokenExpired => Unauthorized(new { error = "refresh_token_expired" }),
+        RefreshTokenReused  => Unauthorized(new { error = "refresh_token_reused" }),   // family revoked: force a re-login
+    };
+```
+
+```csharp
+// net11.0 only
+[HttpPost("oauth/{provider}")]
+public async Task<IActionResult> SignIn(string provider, SignInRequest req, CancellationToken ct) =>
+    await oauth.SignInAsUnionAsync(provider, req.Token, ct) switch
+    {
+        ExternalSignedIn ok            => Ok(new { status = "authenticated", ok.UserId, ok.Tokens.AccessToken, ok.Tokens.RefreshToken }),
+        ExternalPasswordRequired p     => Ok(new { status = "requires_password", p.ContinuationToken, p.Email }),
+        ExternalRegistrationRequired r => Ok(new { status = "requires_registration", r.ContinuationToken, r.Profile.DisplayName }),
+        ExternalSignInFailed f         => BadRequest(new { error = f.Error }),
+    };
+```
+
+There is no `_` arm and no `null` arm: the four arms are exhaustive and compile without a warning, and leaving one out is warning CS8509 (make it an error with `<WarningsAsErrors>CS8509</WarningsAsErrors>`). A value returned by the library always holds a case; only `default(RefreshRotation)` is empty.
+
+```csharp
+// net11.0 only - TechTeaStudio.Auth
+public union RefreshRotation(RefreshRotated, RefreshTokenInvalid, RefreshTokenExpired, RefreshTokenReused);
+
+Task<RefreshRotation> RotateAsUnionAsync(string presentedRefreshToken, CancellationToken ct = default);
+Task<RefreshRotation> RotateAsUnionAsync(string presentedRefreshToken, IEnumerable<Claim> claims, CancellationToken ct = default);
+
+// net11.0 only - TechTeaStudio.Auth.OAuth.Abstractions
+public union ExternalSignIn(ExternalSignedIn, ExternalPasswordRequired, ExternalRegistrationRequired, ExternalSignInFailed);
+public union ExternalSignInCompletion(ExternalSignedIn, ExternalSignInFailed);
+
+Task<ExternalSignIn>           SignInAsUnionAsync(string provider, string rawCredential, CancellationToken ct = default);
+Task<ExternalSignInCompletion> LinkExistingAccountAsUnionAsync(string continuationToken, string password, CancellationToken ct = default);
+Task<ExternalSignInCompletion> CompleteRegistrationAsUnionAsync(string continuationToken, string username, CancellationToken ct = default);
+Task<ExternalSignInCompletion> LinkToUserAsUnionAsync(string provider, string rawCredential, string userId, CancellationToken ct = default);
+```
+
+Each of these wraps the existing method of the same name and adds no behaviour. Two rules: do not return a union from an endpoint as is (it has no discriminator on the wire; map each case to your own response, as above), and expect a new case in a later minor version to break the build of an exhaustive `switch`, which is the point. More in [docs/OAUTH.md](docs/OAUTH.md#net110-the-same-flow-as-a-union).
+
 ### Step 8: List the user's sessions (device attribution)
 
 Because `IssueAsync` accepted `deviceId` / `deviceInfo`, you can show "I am logged in on iPhone 13, Chrome on PC, Firefox on Linux" in a Settings → Sessions screen:

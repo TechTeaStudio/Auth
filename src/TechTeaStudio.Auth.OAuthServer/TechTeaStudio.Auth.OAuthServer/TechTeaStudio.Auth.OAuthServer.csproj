@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.OAuthServer</PackageId>
-    <Version>0.12.1</Version>
+    <Version>0.13.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>OAuth 2.1 authorization server module for ASP.NET Core hosts: authorization code + PKCE S256, refresh-token rotation with a lost-race grace window, RFC 8414 metadata, RFC 8707 resource indicators, RFC 9207 iss, Client ID Metadata Documents and RFC 7591 dynamic registration. Built for MCP clients (Claude, ChatGPT, Claude Code, Cursor). The opposite direction of TechTeaStudio.Auth.OAuth.* (sign in WITH Google/GitHub).</Description>

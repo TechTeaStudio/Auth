@@ -13,7 +13,7 @@ namespace TechTeaStudio.Auth.Tests.OAuth;
 
 public class ExternalLoginServiceTests
 {
-    private static (ExternalLoginService svc, StubExternalAuthProvider provider, TestExternalUserBridge users,
+    internal static (ExternalLoginService svc, StubExternalAuthProvider provider, TestExternalUserBridge users,
         IExternalLoginStore loginStore, IPasswordHasher hasher, IRevokedTokenStore revoked) NewService()
     {
         var concrete = TestAuthOptions.Create();
@@ -39,7 +39,7 @@ public class ExternalLoginServiceTests
         return (svc, stub, users, loginStore, hasher, revoked);
     }
 
-    private static ExternalLoginInfo GoogleInfo(string sub = "g-1", string email = "u@x", bool verified = true) =>
+    internal static ExternalLoginInfo GoogleInfo(string sub = "g-1", string email = "u@x", bool verified = true) =>
         new("Google", sub, email, verified, "User", null);
 
     [Fact]

@@ -63,6 +63,64 @@ Every `POST /api/auth/oauth/{provider}` returns one of:
 
 Continuation tokens are HMAC-signed by the library, valid for 10 minutes, single-use (replay-protected via the deny-list).
 
+### net11.0: the same flow as a union
+
+The `net11.0` asset of `TechTeaStudio.Auth.OAuth.Abstractions` also offers the flow as C# 15 unions. Nothing below exists on `net6.0` through `net10.0`, and nothing above changes on any target: each union method awaits the method it is named after and converts its `ExternalSignInOutcome`.
+
+```csharp
+// net11.0 only
+public sealed record ExternalSignedIn(TokenPair Tokens, string UserId);
+public sealed record ExternalPasswordRequired(string ContinuationToken, string Email);
+public sealed record ExternalRegistrationRequired(string ContinuationToken, ExternalLoginInfo Profile);
+public sealed record ExternalSignInFailed(string Error);
+
+public union ExternalSignIn(ExternalSignedIn, ExternalPasswordRequired, ExternalRegistrationRequired, ExternalSignInFailed);
+public union ExternalSignInCompletion(ExternalSignedIn, ExternalSignInFailed);
+```
+
+| Method | Wraps | Returns |
+|---|---|---|
+| `SignInAsUnionAsync(provider, rawCredential, ct)` | `SignInAsync` | `ExternalSignIn` |
+| `LinkExistingAccountAsUnionAsync(continuationToken, password, ct)` | `LinkExistingAccountAsync` | `ExternalSignInCompletion` |
+| `CompleteRegistrationAsUnionAsync(continuationToken, username, ct)` | `CompleteRegistrationAsync` | `ExternalSignInCompletion` |
+| `LinkToUserAsUnionAsync(provider, rawCredential, userId, ct)` | `LinkToUserAsync` | `ExternalSignInCompletion` |
+
+What the union form buys:
+
+- **The compiler checks the switch.** The four arms below are exhaustive with no `_` arm and no `null` arm, and compile without a warning (checked on SDK 11.0.100). Leaving one out is warning CS8509, which names the missing case; turn it into an error with `<WarningsAsErrors>CS8509</WarningsAsErrors>`.
+- **Each case has only its own data, and none of it is nullable.** No `Tokens!`, no `ContinuationToken!`.
+- **`ExternalSignedIn.UserId`** is the id the tokens were issued for (the `sub` claim of the access token), so the host does not parse its own token to learn who signed in.
+- **The completion steps have two cases, not four.** Linking and registering never ask for another step, so `ExternalSignInCompletion` is `ExternalSignedIn` or `ExternalSignInFailed` and there is no dead "requires password" arm to write.
+
+```csharp
+// net11.0 only
+[HttpPost("oauth/{provider}")]
+public async Task<IActionResult> SignIn(string provider, SignInRequest req, CancellationToken ct) =>
+    await svc.SignInAsUnionAsync(provider, req.Token, ct) switch
+    {
+        ExternalSignedIn ok            => Ok(SignInResponse.Authenticated(ok.UserId, ok.Tokens)),
+        ExternalPasswordRequired p     => Ok(SignInResponse.RequiresPassword(p.ContinuationToken, p.Email)),
+        ExternalRegistrationRequired r => Ok(SignInResponse.RequiresRegistration(r.ContinuationToken, r.Profile.DisplayName, r.Profile.AvatarUrl)),
+        ExternalSignInFailed f         => BadRequest(SignInResponse.Failed(f.Error)),
+    };
+
+[HttpPost("oauth/link")]
+public async Task<IActionResult> Link(LinkRequest req, CancellationToken ct) =>
+    await svc.LinkExistingAccountAsUnionAsync(req.ContinuationToken, req.Password, ct) switch
+    {
+        ExternalSignedIn ok    => Ok(SignInResponse.Authenticated(ok.UserId, ok.Tokens)),
+        ExternalSignInFailed f => BadRequest(SignInResponse.Failed(f.Error)),
+    };
+```
+
+**Map the union to your own DTO.** Do not return `ExternalSignIn` or `ExternalSignInCompletion` from an endpoint. A union has no discriminator on the wire: `System.Text.Json` writes the bare case object and OpenAPI describes the response as an undiscriminated `anyOf`, so the client would receive a token pair or a continuation token with no field saying which outcome it is. `SignInResponse` above is the host's own type with an explicit `status`; the library does not ship one, because the wire contract belongs to the host.
+
+Three more things to know:
+
+- A value returned by the library always holds a case. `default(ExternalSignIn)` holds nothing and makes a switch without a `null` arm throw `SwitchExpressionException`, so do not use `default` as a placeholder.
+- A continuation token is spent by the attempt, wrong password included, exactly as with `LinkExistingAccountAsync`.
+- Adding a case to either union in a later version breaks the build of every exhaustive `switch`. That is the purpose of the type; it will be released as a minor version bump and listed in the changelog as breaking.
+
 ## Wire-up (Hyperion auth-service)
 
 ### 1. Packages

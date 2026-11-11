@@ -15,7 +15,7 @@ namespace TechTeaStudio.Auth.OAuth;
 /// <see cref="IExternalUserBridge"/>, and the base library's
 /// <see cref="RefreshTokenService"/> / <see cref="SignedTokenService"/>.
 /// </summary>
-public sealed class ExternalLoginService
+public sealed partial class ExternalLoginService
 {
     internal const string LinkPurpose     = "tts.oauth.link";
     internal const string RegisterPurpose = "tts.oauth.register";
@@ -94,7 +94,7 @@ public sealed class ExternalLoginService
 
             var tokens = await IssueTokensAsync(user, cancellationToken).ConfigureAwait(false);
             await _audit.LogAsync(new LoginSucceededEvent(user.UserId, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
-            return ExternalSignInOutcome.Authenticated(tokens);
+            return ExternalSignInOutcome.Authenticated(tokens, user.UserId);
         }
 
         // 2. Email collision → ask for the existing password and link.
@@ -162,7 +162,7 @@ public sealed class ExternalLoginService
 
         var tokens = await IssueTokensAsync(user, cancellationToken).ConfigureAwait(false);
         await _audit.LogAsync(new LoginSucceededEvent(user.UserId, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
-        return ExternalSignInOutcome.Authenticated(tokens);
+        return ExternalSignInOutcome.Authenticated(tokens, user.UserId);
     }
 
     /// <summary>
@@ -205,7 +205,7 @@ public sealed class ExternalLoginService
 
         var tokens = await IssueTokensAsync(user, cancellationToken).ConfigureAwait(false);
         await _audit.LogAsync(new LoginSucceededEvent(user.UserId, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
-        return ExternalSignInOutcome.Authenticated(tokens);
+        return ExternalSignInOutcome.Authenticated(tokens, user.UserId);
     }
 
     /// <summary>
@@ -239,7 +239,7 @@ public sealed class ExternalLoginService
         }, cancellationToken).ConfigureAwait(false);
 
         var tokens = await IssueTokensAsync(user, cancellationToken).ConfigureAwait(false);
-        return ExternalSignInOutcome.Authenticated(tokens);
+        return ExternalSignInOutcome.Authenticated(tokens, user.UserId);
     }
 
     private async Task<RefreshTokens.TokenPair> IssueTokensAsync(ExternalUserSnapshot user, CancellationToken ct)

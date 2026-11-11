@@ -11,7 +11,7 @@ namespace TechTeaStudio.Auth.Tests.RefreshTokens;
 
 public class RefreshTokenServiceTests
 {
-    private static RefreshTokenService NewService(out InMemoryRefreshTokenStore store, AuthOptions? options = null)
+    internal static RefreshTokenService NewService(out InMemoryRefreshTokenStore store, AuthOptions? options = null)
     {
         var concrete = options ?? TestAuthOptions.Create();
         var opts = Options.Create(concrete);
@@ -54,7 +54,7 @@ public class RefreshTokenServiceTests
     /// compare-and-swap race against a concurrent rotation of the same token, without needing
     /// real thread interleaving.
     /// </summary>
-    private sealed class AlwaysLosesRaceStore : IRefreshTokenStore
+    internal sealed class AlwaysLosesRaceStore : IRefreshTokenStore
     {
         private readonly IRefreshTokenStore _inner;
         public AlwaysLosesRaceStore(IRefreshTokenStore inner) => _inner = inner;

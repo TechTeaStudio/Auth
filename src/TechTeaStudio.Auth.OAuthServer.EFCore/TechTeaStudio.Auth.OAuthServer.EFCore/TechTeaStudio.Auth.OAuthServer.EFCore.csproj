@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <PackageId>TechTeaStudio.Auth.OAuthServer.EFCore</PackageId>
-    <Version>0.12.1</Version>
+    <Version>0.13.0</Version>
     <Authors>Ronald Ryan</Authors>
     <Company>Tech Tea Studio</Company>
     <Description>EF Core stores and fluent mapping for TechTeaStudio.Auth.OAuthServer: clients, pending authorization requests, authorization codes, refresh tokens and grants.</Description>

@@ -14,7 +14,7 @@ namespace TechTeaStudio.Auth.RefreshTokens;
 /// already-used/revoked token revokes the whole family when
 /// <see cref="RefreshTokenOptions.RevokeChainOnReuse"/> is enabled.
 /// </summary>
-public sealed class RefreshTokenService
+public sealed partial class RefreshTokenService
 {
     private readonly ITokenProvider _tokens;
     private readonly IRefreshTokenStore _store;

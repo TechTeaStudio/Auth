@@ -3,6 +3,27 @@
 All notable changes to this package are documented here.
 Format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-11-11
+
+C# 15 union results, in the `net11.0` assets only. The `net6.0`, `net8.0`, `net9.0` and `net10.0` assets have an identical public API and identical behaviour to 0.12.1: nothing was removed, renamed or changed in signature, and the new types and methods do not exist there. The union methods wrap the existing ones and add no second implementation. All packages version-aligned; only `TechTeaStudio.Auth` and `TechTeaStudio.Auth.OAuth.Abstractions` carry a code change.
+
+### Added (`net11.0` assets only)
+
+- **`RefreshRotation`** in `TechTeaStudio.Auth` (`TechTeaStudio.Auth.RefreshTokens`): `union RefreshRotation(RefreshRotated, RefreshTokenInvalid, RefreshTokenExpired, RefreshTokenReused)`. `RefreshRotated(TokenPair Tokens)` is the only case with a token pair; `RefreshTokenReused` is `RefreshOutcome.ReusedFamilyRevoked`.
+- **`RefreshTokenService.RotateAsUnionAsync(token, ct)`** and **`RotateAsUnionAsync(token, claims, ct)`**. Each awaits the matching `RotateWithOutcomeAsync` overload and converts the `RefreshRotationResult`; rotation, reuse detection and family revocation are untouched. A lost compare-and-swap race is `RefreshTokenInvalid` and leaves the family alone, as before.
+- **`ExternalSignIn`** in `TechTeaStudio.Auth.OAuth.Abstractions` (`TechTeaStudio.Auth.OAuth`): `union ExternalSignIn(ExternalSignedIn, ExternalPasswordRequired, ExternalRegistrationRequired, ExternalSignInFailed)`, and **`ExternalSignInCompletion`**: `union ExternalSignInCompletion(ExternalSignedIn, ExternalSignInFailed)` for the steps that cannot ask for another step.
+- The case types: `ExternalSignedIn(TokenPair Tokens, string UserId)`, `ExternalPasswordRequired(string ContinuationToken, string Email)`, `ExternalRegistrationRequired(string ContinuationToken, ExternalLoginInfo Profile)`, `ExternalSignInFailed(string Error)`. Every member is non-null, and `Error` carries the same strings as `ExternalSignInOutcome.Error`. `UserId` is the id the tokens were issued for and equals the `sub` claim of the access token, so a host no longer has to parse its own token to learn who signed in.
+- **`ExternalLoginService.SignInAsUnionAsync`** (returns `ExternalSignIn`), **`LinkExistingAccountAsUnionAsync`**, **`CompleteRegistrationAsUnionAsync`** and **`LinkToUserAsUnionAsync`** (return `ExternalSignInCompletion`). Each awaits its existing counterpart and converts the `ExternalSignInOutcome` through one mapper. The mapper throws `InvalidOperationException` if an outcome lacks a field its status promises, or if a completion method ever reports `RequiresPassword` or `RequiresRegistration`.
+- A `switch` expression over the case types is exhaustive with no `_` arm and no `null` arm: it compiles without a warning on SDK 11.0.100, and leaving a case out is warning CS8509 naming the missing case. A value returned by the library always holds a case. `default(RefreshRotation)` and `default(ExternalSignIn)` hold nothing and make such a switch throw `SwitchExpressionException`.
+
+### Notes
+
+- **Adding a union case later is a source break** for `net11.0` consumers: every exhaustive `switch` stops compiling (or starts warning). Such a change will be a minor version bump until 1.0 and will be listed here as breaking.
+- **Do not return a union from an HTTP endpoint.** A union has no discriminator on the wire: `System.Text.Json` writes the bare case object and OpenAPI describes it as an undiscriminated `anyOf`, so token pairs and continuation tokens would be serialized with nothing telling the client which case it got. Switch on the union and map each case to your own DTO.
+- No union type appears on any interface. The stores, providers and bridges are unchanged.
+- `ExternalSignInOutcome` is unchanged for consumers on every target: the same six public properties, the same `ToString()` output, the same JSON, the same equality. It gained an internal user id that the union methods read; it is not printed, not serialized and not compared.
+- Tests: 621 on `net8.0`, `net9.0` and `net10.0` (the 601 existing ones, plus checks that the union surface is absent there and that `ExternalSignInOutcome` keeps its shape), 647 on `net11.0`.
+
 ## [0.12.1] - 2026-11-11
 
 ### Added
